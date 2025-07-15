@@ -1,7 +1,4 @@
-use blst::min_pk::SecretKey;
 use clap::{Parser, Subcommand};
-use hex::encode;
-use rand::RngCore;
 
 const KEYGEN_SALT: &[u8] = b"BLS-SIG-KEYGEN-SALT-";
 
@@ -23,8 +20,7 @@ fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Keygen => {
-        }
+        Commands::Keygen => {}
     }
 }
 
