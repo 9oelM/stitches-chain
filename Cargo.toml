@@ -1,5 +1,5 @@
 [workspace]
 members = [
-    "crates/beacon_node",
+    "crates/beacon_node", "crates/bls",
     "crates/validator",
 ]

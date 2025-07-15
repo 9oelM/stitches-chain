@@ -7,7 +7,7 @@ mod randao;
 // use crate::validator::ValidatorId;
 // use crate::block::Block;
 
-// fn main() {
+fn main() {
 //     // Initialize RANDAO with some initial mix value
 //     let mut randao = Randao::new(U256::from(1234));
     
@@ -29,4 +29,4 @@ mod randao;
     
 //     println!("Selected validator index: {}", selected_validator);
 //     println!("Current RANDAO mix: {:?}", randao.get_current_mix());
-// }
+}

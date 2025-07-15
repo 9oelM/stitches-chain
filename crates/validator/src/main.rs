@@ -3,9 +3,6 @@ use clap::{Parser, Subcommand};
 use hex::encode;
 use rand::RngCore;
 
-mod keypair;
-mod keystore;
-
 const KEYGEN_SALT: &[u8] = b"BLS-SIG-KEYGEN-SALT-";
 
 #[derive(Parser)]
@@ -27,7 +24,6 @@ fn main() {
 
     match &cli.command {
         Commands::Keygen => {
-            generate_keypair();
         }
     }
 }
