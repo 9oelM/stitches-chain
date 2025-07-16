@@ -1,3 +1,4 @@
+pub mod derivation_path;
 pub mod keypair;
 pub mod keystore;
 
