@@ -1,6 +1,9 @@
 pub mod derivation_path;
+pub mod key_derivation;
 pub mod keypair;
 pub mod keystore;
+pub mod pbkdf;
+pub mod scrypt;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

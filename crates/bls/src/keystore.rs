@@ -4,10 +4,23 @@
 //! 2. Private Key + Derived Key ──► AES-128-CTR ──► Encrypted Key
 //! 3. Encrypted Key + Derived Key ──► SHA-256 ──► Checksum
 
+use aes::{
+    Aes128,
+    cipher::{KeyIvInit, StreamCipher, generic_array::GenericArray},
+};
+use blst::min_pk::SecretKey;
+use ctr::Ctr128BE;
+use rand::Rng;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::derivation_path::DerivationPath;
+use crate::{
+    derivation_path::DerivationPath,
+    key_derivation::{KeyDerivationError, KeyDerivationMethod},
+    pbkdf::Pbkdf2Kdf,
+    scrypt::ScryptKdf,
+};
 
 // TODO: more precise types
 const HMAC_SHA256: &str = "hmac-sha256";
@@ -23,31 +36,19 @@ pub enum CryptoFunction {
 }
 
 /// Key derivation functions (KDF).
-pub enum KdfModule {
+pub enum Kdf {
     Pbkdf2(Pbkdf2Kdf),
     Scrypt(ScryptKdf),
 }
 
 #[derive(Debug, Error)]
-pub enum CreateScryptKdfParamsError {
-    #[error("Insecure scrypt parameters: n * r * p must be at least 2^20")]
-    InsecureParameters,
-    #[error(
-        "Invalid scrypt parameters: n ({n}) must be less than 2^(128 * {r} / 8). Got n={n}, r={r}, 2^(128 * {r} / 8)={upperbound}"
-    )]
-    InvalidNSize { n: u32, r: u32, upperbound: u64 },
-    #[error("Invalid scrypt parameters: n ({n}) must be less than 2**8 - 1")]
-    InvalidNSize2 { n: u32 },
-    #[error("Invalid scrypt parameters: n ({n}) must be a power of 2")]
-    InvalidNPower { n: u32 },
-}
-
-#[derive(Debug, Error)]
-pub enum ScryptKdfToDerivedKeyError {
+pub enum EncryptError {
     #[error(transparent)]
-    InvalidParams(#[from] scrypt::errors::InvalidParams),
-    #[error(transparent)]
-    InvalidOutputLen(#[from] scrypt::errors::InvalidOutputLen),
+    KeyDerivationError(KeyDerivationError),
+    #[error("blst error encountered while converting secret key: {e}")]
+    SecretKeyConversionBlstError { e: u32 },
+    #[error("invalid AES IV length, expected 16 bytes")]
+    InvalidAesIvLength,
 }
 
 /// Spec:
@@ -67,7 +68,7 @@ pub enum ScryptKdfToDerivedKeyError {
 /// - https://github.com/roynalnaruto/eth-keystore-rs/blob/85ea8cd5b4dbfcdb3af50e1835540fee83d3b966/src/keystore.rs (Old keystore format)
 /// - https://github.com/RustCrypto/password-hashes (Password hashing algorithms, like PBKDF2, Scrypt)
 ///
-pub struct KeyStore {
+pub struct KeyStore<KDF: KeyDerivationMethod> {
     /// Version of the keystore format. Currently, [the spec](https://eips.ethereum.org/EIPS/eip-2335) defines only one version, which is 4.
     /// Left as u8 for backward compatibility.
     version: u8,
@@ -93,100 +94,75 @@ pub struct KeyStore {
     /// For example, it can be 48 bytes for BLS12-381 (compressed form).
     pubkey: Vec<u8>,
     /// Cryptographic functions used for key derivation, encryption, and checksum.
-    crypto: KeyStoreCrypto,
+    crypto: KeyStoreCrypto<KDF>,
 }
 
-pub struct KeyStoreCrypto {
-    kdf: KdfModule,
+pub struct KeyStoreCrypto<KDF> {
+    kdf: KDF,
     checksum: Sha2Checksum,
     cipher: Aes128CtrCipher,
 }
 
-pub struct Pbkdf2KdfParams {
-    dklen: u8,
-    c: u32,
-    /// Spec does not specify the length of the salt, so we use a Vec<u8>
-    salt: Vec<u8>,
-}
+impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
+    /// Encrypt a BLS secret key in an ERC-2335 keystore format.
+    pub fn encrypt(
+        secret_key: &[u8],
+        password: &[u8],
+        path: DerivationPath,
+        description: Option<String>,
+        aes_iv: Option<Vec<u8>>,
+        kdf: KDF,
+    ) -> Result<Self, EncryptError> {
+        let uuid = Uuid::new_v4();
+        let aes_iv: [u8; 16] = match aes_iv {
+            Some(iv) => iv
+                .try_into()
+                .map_err(|_| EncryptError::InvalidAesIvLength)?, // Handle invalid AES IV length
+            None => rand::rng().random::<[u8; 16]>(),
+        };
+        let decryption_key = kdf
+            .derive_key(password)
+            .map_err(EncryptError::KeyDerivationError)?; // Handle key derivation error
+        let key = GenericArray::from_slice(&decryption_key[..16]);
+        let nonce = GenericArray::from_slice(&aes_iv);
 
-/// Key derivation function.
-///
-/// Derives a key from a password
-pub struct Pbkdf2Kdf {
-    params: Pbkdf2KdfParams,
-}
+        let mut cipher = Ctr128BE::<Aes128>::new(key, nonce);
+        let mut cipher_message = secret_key.to_vec();
+        cipher.apply_keystream(&mut cipher_message);
 
-/// Unprocessed parameters for the Scrypt key derivation function (KDF).
-pub struct ScryptKdfParamsBuilder {
-    /// CPU/Memory cost parameter.
-    ///
-    /// Must be a power of 2.
-    ///
-    /// Higher values increase memory usage and CPU time.
-    ///
-    /// Example value: 2**18 = 262144
-    n: u32,
-    /// Block size.
-    ///
-    /// Affects how memory is accessed.
-    ///
-    /// Larger values increase memory usage.
-    ///
-    /// Example value: 8
-    r: u32,
-    /// Parallelization factor.
-    ///
-    /// Number of parallel processing threads.
-    ///
-    /// Each thread uses 128 * r bytes of memory.
-    ///
-    /// Example value: 1
-    p: u32,
-    /// Output of the derived key in bytes.
-    ///
-    /// For example, dklen = 16 means that the derived key will be 16 bytes long.
-    ///
-    /// For AES-128-CTR, dklen must be 16 (bytes).
-    dklen: u8,
-    /// Spec does not specify the length of the salt, so we use a `Vec<u8>`
-    salt: Vec<u8>,
-}
+        let mut hasher = Sha256::new();
+        hasher.update(&decryption_key[16..32]);
+        hasher.update(&cipher_message);
 
-/// Parameters for the Scrypt key derivation function (KDF).
-pub struct ScryptKdfParams {
-    /// Log2 of CPU/Memory cost parameter 'n'.
-    log2_n: u8,
-    /// Block size.
-    ///
-    /// Affects how memory is accessed.
-    ///
-    /// Larger values increase memory usage.
-    ///
-    /// Example value: 8
-    r: u32,
-    /// Parallelization factor.
-    ///
-    /// Number of parallel processing threads.
-    ///
-    /// Each thread uses 128 * r bytes of memory.
-    ///
-    /// Example value: 1
-    p: u32,
-    /// Output of the derived key in bytes.
-    ///
-    /// For example, dklen = 16 means that the derived key will be 16 bytes long.
-    ///
-    /// For AES-128-CTR, dklen must be 16 (bytes).
-    dklen: u8,
-    /// Spec does not specify the length of the salt, so we use a `Vec<u8>`
-    salt: Vec<u8>,
-}
+        let checksum_message = hasher.finalize().to_vec();
+        let sk = SecretKey::from_bytes(secret_key).map_err(|blst_error| {
+            EncryptError::SecretKeyConversionBlstError {
+                e: blst_error as u32,
+            }
+        })?; // Handle secret key conversion error
+        let pubkey = sk.sk_to_pk().to_bytes();
 
-/// Similar to PBKDF2, but uses Scrypt algorithm.
-///
-/// More resistant to hardware attacks than PBKDF2.
-pub struct ScryptKdf {
-    params: ScryptKdfParams,
+        let keystore_crypto = KeyStoreCrypto {
+            kdf,
+            checksum: Sha2Checksum {
+                message: checksum_message,
+                params: Sha2ChecksumParams {},
+            },
+            cipher: Aes128CtrCipher {
+                params: Aes128CtrCipherParams { iv: aes_iv },
+                message: cipher_message,
+            },
+        };
+
+        Ok(KeyStore {
+            version: 4,
+            uuid,
+            description,
+            path,
+            pubkey: pubkey.to_vec(),
+            crypto: keystore_crypto,
+        })
+    }
 }
 
 // Note: deliberately left empty
@@ -199,6 +175,7 @@ struct Sha2ChecksumParams {}
 /// Helps detect if the encrypted data has been tampered with or corrupted.
 struct Sha2Checksum {
     params: Sha2ChecksumParams,
+    message: Vec<u8>,
 }
 
 pub struct Aes128CtrCipherParams {
@@ -211,75 +188,8 @@ pub struct Aes128CtrCipherParams {
 /// Takes the derived key from PBKDF2 or Scrypt to encrypts/decrypt the private key
 pub struct Aes128CtrCipher {
     params: Aes128CtrCipherParams,
-    message: String,
-}
-
-impl ScryptKdf {
-    fn new(params: ScryptKdfParams) -> Self {
-        ScryptKdf { params }
-    }
-
-    pub fn to_derived_key(&self, password: &[u8]) -> Result<Vec<u8>, ScryptKdfToDerivedKeyError> {
-        // Use the Scrypt algorithm to derive a key from the password
-        // This is a placeholder implementation; actual Scrypt derivation logic should be used
-        let mut derived_key = vec![0u8; self.params.dklen as usize];
-
-        let scrypt_params = scrypt::Params::new(
-            self.params.log2_n,
-            self.params.r,
-            self.params.p,
-            self.params.dklen.into(),
-        )?;
-        scrypt::scrypt(
-            password,
-            &self.params.salt,
-            &scrypt_params,
-            derived_key.as_mut_slice(),
-        )?;
-        Ok(derived_key)
-    }
-}
-
-impl TryFrom<ScryptKdfParamsBuilder> for ScryptKdf {
-    type Error = CreateScryptKdfParamsError;
-
-    /// Refer to https://github.com/ethereum/staking-deposit-cli/blob/948d3fc358fdae54ff47dd8045206276b0b6b914/staking_deposit/utils/crypto.py#L21-L26
-    /// for parameter validation
-    fn try_from(params: ScryptKdfParamsBuilder) -> Result<Self, Self::Error> {
-        if params.n * params.r * params.p < 2u32.pow(20) {
-            return Err(CreateScryptKdfParamsError::InsecureParameters);
-        }
-
-        let upperbound = 2u32.pow(128 * params.r / 8);
-
-        if params.n >= upperbound {
-            return Err(CreateScryptKdfParamsError::InvalidNSize {
-                n: params.n,
-                r: params.r,
-                upperbound: upperbound as u64,
-            });
-        }
-
-        // because ilog2 returns the base 2 logarithm of the number, rounded down.
-        // ensure that n is a power of 2 before calling ilog2
-        if !params.n.is_power_of_two() {
-            return Err(CreateScryptKdfParamsError::InvalidNPower { n: params.n });
-        }
-
-        let log2_n: u8 = params
-            .n
-            .ilog2()
-            .try_into()
-            .map_err(|_| CreateScryptKdfParamsError::InvalidNSize2 { n: params.n })?;
-
-        Ok(Self::new(ScryptKdfParams {
-            log2_n,
-            r: params.r,
-            p: params.p,
-            dklen: params.dklen,
-            salt: params.salt,
-        }))
-    }
+    /// Encrypted message
+    message: Vec<u8>,
 }
 
 /// Serialize the function to a string according to the spec
