@@ -1,0 +1,16 @@
+[package]
+name = "bls"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aes = "0.8.4"
+blst = "0.3.15"
+ctr = "0.9.2"
+hex = "0.4.3"
+pbkdf2 = "0.12.2"
+rand = "0.9.1"
+scrypt = "0.11.0"
+sha2 = "0.10.9"
+thiserror = "2.0.12"
+uuid = { version = "1.4.1", features = ["v4", "serde"] }
