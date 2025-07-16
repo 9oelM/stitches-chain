@@ -139,7 +139,7 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
             EncryptError::SecretKeyConversionBlstError {
                 e: blst_error as u32,
             }
-        })?; // Handle secret key conversion error
+        })?;
         let pubkey = sk.sk_to_pk().to_bytes();
 
         let keystore_crypto = KeyStoreCrypto {

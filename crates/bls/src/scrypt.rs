@@ -141,6 +141,8 @@ impl TryFrom<ScryptKdfParamsBuilder> for ScryptKdf {
 
     /// Refer to https://github.com/ethereum/staking-deposit-cli/blob/948d3fc358fdae54ff47dd8045206276b0b6b914/staking_deposit/utils/crypto.py#L21-L26
     /// for parameter validation
+    /// 
+    /// Creates a new ScryptKdf instance from the provided parameters.
     fn try_from(params: ScryptKdfParamsBuilder) -> Result<Self, Self::Error> {
         if params.n * params.r * params.p < 2u32.pow(20) {
             return Err(CreateScryptKdfParamsError::InsecureParameters);
