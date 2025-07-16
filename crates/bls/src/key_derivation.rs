@@ -19,7 +19,7 @@ pub trait KeyDerivationMethod {
 
     /// Get the function identifier for serialization
     fn crypto_function(&self) -> CryptoFunction;
-    
+
     /// Get the salt used for key derivation
     fn salt(&self) -> Vec<u8>;
 }
