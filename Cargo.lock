@@ -111,7 +111,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bls_keystore"
+name = "bls-keystore"
 version = "0.1.0"
 dependencies = [
  "aes",
