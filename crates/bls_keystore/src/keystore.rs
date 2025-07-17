@@ -83,10 +83,10 @@ pub enum DecryptError {
 pub struct KeyStore<KDF: KeyDerivationMethod> {
     /// Version of the keystore format. Currently, [the spec](https://eips.ethereum.org/EIPS/eip-2335) defines only one version, which is 4.
     /// Left as u8 for backward compatibility.
-    version: u8,
+    pub version: u8,
     /// The uuid field is a 128-bit (16-byte) identifier as specified by RFC 4122
-    uuid: Uuid,
-    description: Option<String>,
+    pub uuid: Uuid,
+    pub description: Option<String>,
     /// Path defined by https://eips.ethereum.org/EIPS/eip-2334.
     ///
     /// The path field in an EIP-2335 keystore is a [BIP-32](https://en.bitcoin.it/wiki/BIP_0032)-style derivation path string
@@ -100,19 +100,19 @@ pub struct KeyStore<KDF: KeyDerivationMethod> {
     /// The path records exactly how to re-derive this key if needed.
     /// If you lose the raw private key but have the seed and the path, you can recreate
     /// the exact same private/public keypair.
-    path: DerivationPath,
+    pub path: DerivationPath,
     /// The spec does not specify the length of the public key.
     /// We leave it as a Vec<u8> to allow for flexibility.
     /// For example, it can be 48 bytes for BLS12-381 (compressed form).
-    pubkey: Vec<u8>,
+    pub pubkey: Vec<u8>,
     /// Cryptographic functions used for key derivation, encryption, and checksum.
-    crypto: KeyStoreCrypto<KDF>,
+    pub crypto: KeyStoreCrypto<KDF>,
 }
 
 pub struct KeyStoreCrypto<KDF> {
-    kdf: KDF,
-    checksum: Sha2Checksum,
-    cipher: Aes128CtrCipher,
+    pub kdf: KDF,
+    pub checksum: Sha2Checksum,
+    pub cipher: Aes128CtrCipher,
 }
 
 impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
@@ -220,30 +220,30 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
 }
 
 // Note: deliberately left empty
-struct Sha2ChecksumParams {}
+pub struct Sha2ChecksumParams {}
 
 /// Used for checksum verification.
 ///
 /// Creates a hash of the encrypted data to verify integrity.
 ///
 /// Helps detect if the encrypted data has been tampered with or corrupted.
-struct Sha2Checksum {
-    params: Sha2ChecksumParams,
-    message: Vec<u8>,
+pub struct Sha2Checksum {
+    pub params: Sha2ChecksumParams,
+    pub message: Vec<u8>,
 }
 
 pub struct Aes128CtrCipherParams {
     /// Initialization Vector (IV) for AES-128-CTR mode
     ///
     /// Must be 16 bytes (128 bits) and unique for each encryption
-    iv: [u8; 16],
+    pub iv: [u8; 16],
 }
 
 /// Takes the derived key from PBKDF2 or Scrypt to encrypts/decrypt the private key
 pub struct Aes128CtrCipher {
-    params: Aes128CtrCipherParams,
+    pub params: Aes128CtrCipherParams,
     /// Encrypted message
-    message: Vec<u8>,
+    pub message: Vec<u8>,
 }
 
 /// Serialize the function to a string according to the spec

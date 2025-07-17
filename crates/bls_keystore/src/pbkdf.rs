@@ -26,11 +26,11 @@ pub struct Pbkdf2Kdf {
 }
 
 pub struct Pbkdf2KdfParamsBuilder {
-    c: u32,
+    pub c: u32,
     /// Spec does not specify the length of the salt, so we use a Vec<u8>
-    salt: Vec<u8>,
+    pub salt: Vec<u8>,
     /// Pseudo-random function to use
-    prf: PseudoRandomFunction,
+    pub prf: PseudoRandomFunction,
 }
 
 pub struct Pbkdf2KdfParams {
@@ -39,13 +39,13 @@ pub struct Pbkdf2KdfParams {
     /// For example, dklen = 32 means that the derived key will be 32 bytes long.
     ///
     /// For ERC-2335 keystores, dklen must be 32 bytes (16 for AES-128-CTR + 16 for checksum).
-    dklen: u8,
+    pub dklen: u8,
     /// Number of iterations to use in the PBKDF2 algorithm
-    c: u32,
+    pub c: u32,
     /// Spec does not specify the length of the salt, so we use a Vec<u8>
-    salt: Vec<u8>,
+    pub salt: Vec<u8>,
     /// Pseudo-random function to use
-    prf: PseudoRandomFunction,
+    pub prf: PseudoRandomFunction,
 }
 
 impl Pbkdf2Kdf {

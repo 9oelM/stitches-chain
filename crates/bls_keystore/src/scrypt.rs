@@ -36,7 +36,7 @@ pub struct ScryptKdfParamsBuilder {
     /// Higher values increase memory usage and CPU time.
     ///
     /// Example value: 2**18 = 262144
-    n: u32,
+    pub n: u32,
     /// Block size.
     ///
     /// Affects how memory is accessed.
@@ -44,7 +44,7 @@ pub struct ScryptKdfParamsBuilder {
     /// Larger values increase memory usage.
     ///
     /// Example value: 8
-    r: u32,
+    pub r: u32,
     /// Parallelization factor.
     ///
     /// Number of parallel processing threads.
@@ -52,9 +52,9 @@ pub struct ScryptKdfParamsBuilder {
     /// Each thread uses 128 * r bytes of memory.
     ///
     /// Example value: 1
-    p: u32,
+    pub p: u32,
     /// Spec does not specify the length of the salt, so we use a `Vec<u8>`
-    salt: Vec<u8>,
+    pub salt: Vec<u8>,
 }
 
 /// Parameters for the Scrypt key derivation function (KDF).
@@ -148,9 +148,8 @@ impl TryFrom<ScryptKdfParamsBuilder> for ScryptKdf {
             return Err(CreateScryptKdfParamsError::InsecureParameters);
         }
 
-        let upperbound = 2u32.pow(128 * params.r / 8);
-
-        if params.n >= upperbound {
+        let upperbound = 2_f32.powf((128 * params.r / 8) as f32);
+        if params.n as f32 >= upperbound {
             return Err(CreateScryptKdfParamsError::InvalidNSize {
                 n: params.n,
                 r: params.r,
@@ -169,7 +168,6 @@ impl TryFrom<ScryptKdfParamsBuilder> for ScryptKdf {
             .ilog2()
             .try_into()
             .map_err(|_| CreateScryptKdfParamsError::InvalidNSize2 { n: params.n })?;
-
         Ok(Self::new(ScryptKdfParams {
             log2_n,
             r: params.r,
