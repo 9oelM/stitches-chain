@@ -7,10 +7,10 @@ PoS chain for dummies to break stuff & learn.
 >
 > And I really mean it. Because this is for the average-ish people who still want to break into L1 development.
 
-The goal is to: 
-1. Implement minimal PoS chain at a consensus layer. Execution layer is not dealt with for now.
-1. Sufficiently replicate certain features/ERCs/EIPs of Ethereum Beacon chain in a rather inefficient but educative manner
-1. Overly annotate the code in such a way that developers coming from other domains (web2/smart contract development/fullstack) would understand what is going on in the code.
+The goal is: 
+1. **PoS Consensus Layer**. Implement minimal PoS chain at a consensus layer. Execution layer is not dealt with for now.
+1. **Ethereum relevance**. Sufficiently replicate certain features/ERCs/EIPs of Ethereum Beacon chain in a rather inefficient but educative manner
+1. **Obsessive documentation**. Overly annotate the code in such a way that developers coming from other domains (web2/smart contract development/fullstack) would understand what is going on in the code.
 
 The project is divided up into modular crates:
 
