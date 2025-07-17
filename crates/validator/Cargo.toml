@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bls-keystore = { path = "../bls_keystore" }
 blst = "0.3.15"
 clap = { version = "4.5.41", features = ["derive"] }
 hex = "0.4.3"

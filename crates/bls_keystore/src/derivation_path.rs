@@ -85,18 +85,41 @@ impl DerivationPath {
     }
 }
 
+impl fmt::Display for DerivationPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(signing) = self.signing_index {
+            write!(
+                f,
+                "m/{}/{}/{}/{}/{}",
+                self.purpose, self.coin_type, self.account, self.use_index, signing
+            )
+        } else {
+            write!(
+                f,
+                "m/{}/{}/{}/{}",
+                self.purpose, self.coin_type, self.account, self.use_index
+            )
+        }
+    }
+}
+
 impl FromStr for DerivationPath {
     type Err = PathError;
 
     fn from_str(path: &str) -> Result<Self, Self::Err> {
+        // Remove 'm/' prefix
         let path = path.strip_prefix("m/").ok_or(PathError::InvalidFormat)?;
+
+        // Split into components
         let components: Vec<&str> = path.split('/').collect();
 
+        // Validate components length
         match components.len() {
-            4 | 5 => (),
+            4 | 5 => (), // Valid lengths for withdrawal and signing paths
             _ => return Err(PathError::InvalidFormat),
         }
 
+        // Parse components
         let purpose = components[0]
             .parse()
             .map_err(|_| PathError::InvalidFormat)?;
@@ -107,10 +130,13 @@ impl FromStr for DerivationPath {
         let coin_type = components[1]
             .parse()
             .map_err(|_| PathError::InvalidFormat)?;
+
         let account = components[2]
             .parse()
             .map_err(|_| PathError::InvalidAccount)?;
+
         let use_index = components[3].parse().map_err(|_| PathError::InvalidUse)?;
+
         let signing_index = if components.len() == 5 {
             Some(
                 components[4]
@@ -131,23 +157,7 @@ impl FromStr for DerivationPath {
     }
 }
 
-impl fmt::Display for DerivationPath {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(signing) = self.signing_index {
-            write!(
-                f,
-                "m/{}/{}/{}/{}/{}",
-                self.purpose, self.coin_type, self.account, self.use_index, signing
-            )
-        } else {
-            write!(
-                f,
-                "m/{}/{}/{}/{}",
-                self.purpose, self.coin_type, self.account, self.use_index
-            )
-        }
-    }
-}
+
 
 #[cfg(test)]
 mod tests {

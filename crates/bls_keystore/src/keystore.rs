@@ -11,6 +11,7 @@ use aes::{
 use blst::min_pk::SecretKey;
 use ctr::Ctr128BE;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use uuid::Uuid;
@@ -77,12 +78,14 @@ pub enum DecryptError {
 /// - https://github.com/roynalnaruto/eth-keystore-rs/blob/85ea8cd5b4dbfcdb3af50e1835540fee83d3b966/src/keystore.rs (Old keystore format)
 /// - https://github.com/RustCrypto/password-hashes (Password hashing algorithms, like PBKDF2, Scrypt)
 ///
+#[derive(Serialize, Deserialize)]
 pub struct KeyStore<KDF: KeyDerivationMethod> {
     /// Version of the keystore format. Currently, [the spec](https://eips.ethereum.org/EIPS/eip-2335) defines only one version, which is 4.
     /// Left as u8 for backward compatibility.
     pub version: u8,
     /// The uuid field is a 128-bit (16-byte) identifier as specified by RFC 4122
     pub uuid: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Path defined by https://eips.ethereum.org/EIPS/eip-2334.
     ///
@@ -97,15 +100,21 @@ pub struct KeyStore<KDF: KeyDerivationMethod> {
     /// The path records exactly how to re-derive this key if needed.
     /// If you lose the raw private key but have the seed and the path, you can recreate
     /// the exact same private/public keypair.
+    #[serde(
+        serialize_with = "serialize_path",
+        deserialize_with = "deserialize_path"
+    )]
     pub path: DerivationPath,
     /// The spec does not specify the length of the public key.
     /// We leave it as a Vec<u8> to allow for flexibility.
     /// For example, it can be 48 bytes for BLS12-381 (compressed form).
+    #[serde(with = "hex")]
     pub pubkey: Vec<u8>,
     /// Cryptographic functions used for key derivation, encryption, and checksum.
     pub crypto: KeyStoreCrypto<KDF>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct KeyStoreCrypto<KDF> {
     pub kdf: KDF,
     pub checksum: Sha2Checksum,
@@ -154,10 +163,12 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
         let keystore_crypto = KeyStoreCrypto {
             kdf,
             checksum: Sha2Checksum {
+                function: "sha256".to_string(),
                 message: checksum_message,
                 params: Sha2ChecksumParams {},
             },
             cipher: Aes128CtrCipher {
+                function: "aes-128-ctr".to_string(),
                 params: Aes128CtrCipherParams { iv: aes_iv },
                 message: cipher_message,
             },
@@ -217,6 +228,7 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
 }
 
 // Note: deliberately left empty
+#[derive(Serialize, Deserialize)]
 pub struct Sha2ChecksumParams {}
 
 /// Used for checksum verification.
@@ -224,22 +236,31 @@ pub struct Sha2ChecksumParams {}
 /// Creates a hash of the encrypted data to verify integrity.
 ///
 /// Helps detect if the encrypted data has been tampered with or corrupted.
+#[derive(Serialize, Deserialize)]
 pub struct Sha2Checksum {
+    #[serde(rename = "function")]
+    pub function: String,
     pub params: Sha2ChecksumParams,
+    #[serde(with = "hex")]
     pub message: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Aes128CtrCipherParams {
     /// Initialization Vector (IV) for AES-128-CTR mode
     ///
     /// Must be 16 bytes (128 bits) and unique for each encryption
+    #[serde(with = "hex")]
     pub iv: [u8; 16],
 }
 
 /// Takes the derived key from PBKDF2 or Scrypt to encrypts/decrypt the private key
+#[derive(Serialize, Deserialize)]
 pub struct Aes128CtrCipher {
+    #[serde(rename = "function")]
+    pub function: String,
     pub params: Aes128CtrCipherParams,
-    /// Encrypted message
+    #[serde(with = "hex")]
     pub message: Vec<u8>,
 }
 
@@ -252,5 +273,165 @@ impl From<CryptoFunction> for &str {
             CryptoFunction::Aes128Ctr => "aes-128-ctr",
             CryptoFunction::Scrypt => "scrypt",
         }
+    }
+}
+
+/// Custom serialization for DerivationPath to string format
+fn serialize_path<S>(path: &DerivationPath, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use std::fmt::Display;
+    serializer.serialize_str(&path.to_string())
+}
+
+/// Custom deserialization for DerivationPath from string format
+fn deserialize_path<'de, D>(deserializer: D) -> Result<DerivationPath, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use std::str::FromStr;
+    let path_str = String::deserialize(deserializer)?;
+    DerivationPath::from_str(&path_str).map_err(serde::de::Error::custom)
+}
+/// Testing vectors came from https://github.com/ethereum/staking-deposit-cli/tree/948d3fc358fdae54ff47dd8045206276b0b6b914/tests/test_key_handling/test_key_derivation
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        pbkdf::{Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction},
+        scrypt::{ScryptKdf, ScryptKdfParamsBuilder},
+    };
+    use hex;
+    use serde_json;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_keystore_pbkdf2_serialization() {
+        // Create a keystore with PBKDF2 using test vector parameters
+        let secret_key =
+            hex::decode("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f")
+                .unwrap();
+        let password = &[
+            0x74, 0x65, 0x73, 0x74, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0xf0, 0x9f,
+            0x94, 0x91,
+        ];
+        let salt = hex::decode("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+            .unwrap();
+        let iv = hex::decode("264daa3f303d7259501c93d997d84fe6").unwrap();
+        let path = DerivationPath::from_str("m/12381/60/0/0").unwrap();
+
+        let pbkdf2_params = Pbkdf2KdfParamsBuilder {
+            c: 262144,
+            salt,
+            prf: PseudoRandomFunction::Sha256,
+        };
+        let kdf = Pbkdf2Kdf::try_from(pbkdf2_params).unwrap();
+
+        let keystore = KeyStore::encrypt(
+            &secret_key,
+            password,
+            path,
+            Some("This is a test keystore that uses PBKDF2 to secure the secret.".to_string()),
+            Some(iv),
+            kdf,
+        )
+        .unwrap();
+
+        // Serialize to JSON
+        let json = serde_json::to_string_pretty(&keystore).unwrap();
+
+        // Parse back to verify structure
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Verify the JSON structure matches ERC-2335 format
+        assert_eq!(parsed["version"], 4);
+        assert_eq!(parsed["path"], "m/12381/60/0/0");
+        assert_eq!(
+            parsed["pubkey"],
+            "9612d7a727c9d0a22e185a1c768478dfe919cada9266988cb32359c11f2b7b27f4ae4040902382ae2910c15e2b420d07"
+        );
+
+        // Verify crypto structure
+        assert_eq!(parsed["crypto"]["kdf"]["function"], "pbkdf2");
+        assert_eq!(parsed["crypto"]["kdf"]["params"]["dklen"], 32);
+        assert_eq!(parsed["crypto"]["kdf"]["params"]["c"], 262144);
+        assert_eq!(parsed["crypto"]["kdf"]["params"]["prf"], "hmac-sha256");
+        assert_eq!(
+            parsed["crypto"]["kdf"]["params"]["salt"],
+            "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+        );
+        assert_eq!(parsed["crypto"]["kdf"]["message"], "");
+
+        assert_eq!(parsed["crypto"]["checksum"]["function"], "sha256");
+        assert_eq!(parsed["crypto"]["cipher"]["function"], "aes-128-ctr");
+        assert_eq!(
+            parsed["crypto"]["cipher"]["params"]["iv"],
+            "264daa3f303d7259501c93d997d84fe6"
+        );
+
+        // Test deserialization roundtrip
+        let deserialized_keystore: KeyStore<Pbkdf2Kdf> = serde_json::from_str(&json).unwrap();
+
+        // Verify the deserialized keystore can decrypt correctly
+        let decrypted_key = deserialized_keystore.decrypt(password).unwrap();
+        assert_eq!(decrypted_key.to_vec(), secret_key);
+    }
+
+    #[test]
+    fn test_keystore_deserialization_from_test_vectors() {
+        // Test deserialization from the actual PBKDF2 test vector
+        let pbkdf2_json = r#"{
+            "crypto": {
+                "kdf": {
+                    "function": "pbkdf2",
+                    "params": {
+                        "dklen": 32,
+                        "c": 262144,
+                        "prf": "hmac-sha256",
+                        "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+                    },
+                    "message": ""
+                },
+                "checksum": {
+                    "function": "sha256",
+                    "params": {},
+                    "message": "8a9f5d9912ed7e75ea794bc5a89bca5f193721d30868ade6f73043c6ea6febf1"
+                },
+                "cipher": {
+                    "function": "aes-128-ctr",
+                    "params": {
+                        "iv": "264daa3f303d7259501c93d997d84fe6"
+                    },
+                    "message": "cee03fde2af33149775b7223e7845e4fb2c8ae1792e5f99fe9ecf474cc8c16ad"
+                }
+            },
+            "description": "This is a test keystore that uses PBKDF2 to secure the secret.",
+            "pubkey": "9612d7a727c9d0a22e185a1c768478dfe919cada9266988cb32359c11f2b7b27f4ae4040902382ae2910c15e2b420d07",
+            "path": "m/12381/60/0/0",
+            "uuid": "64625def-3331-4eea-ab6f-782f3ed16a83",
+            "version": 4
+        }"#;
+
+        let keystore: KeyStore<Pbkdf2Kdf> = serde_json::from_str(pbkdf2_json).unwrap();
+
+        // Verify the keystore was deserialized correctly
+        assert_eq!(keystore.version, 4);
+        assert_eq!(keystore.path.to_string(), "m/12381/60/0/0");
+        assert_eq!(
+            keystore.description,
+            Some("This is a test keystore that uses PBKDF2 to secure the secret.".to_string())
+        );
+
+        // Test decryption with the correct password
+        let password = &[
+            0x74, 0x65, 0x73, 0x74, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0xf0, 0x9f,
+            0x94, 0x91,
+        ];
+        let decrypted_key = keystore.decrypt(password).unwrap();
+        let expected_key =
+            hex::decode("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f")
+                .unwrap();
+        assert_eq!(decrypted_key.to_vec(), expected_key);
     }
 }

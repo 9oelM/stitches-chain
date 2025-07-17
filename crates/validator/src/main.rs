@@ -1,14 +1,12 @@
-use clap::{Parser, Subcommand};
+use bls_keystore::derivation_path::DerivationPath;
+use bls_keystore::keystore::KeyStore;
+use bls_keystore::pbkdf::Pbkdf2Kdf;
 use blst::min_pk::SecretKey;
-use rand::RngCore;
+use clap::{Parser, Subcommand};
 use hex::encode;
+use rand::RngCore;
 use std::fs::File;
 use std::io::Write;
-
-use bls_keystore::{
-    keystore::{KeyStore, Pbkdf2Kdf},
-    derivation_path::DerivationPath,
-};
 
 #[derive(Parser)]
 #[command(name = "Stitches Validator Client")]
@@ -39,7 +37,11 @@ fn main() {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Keygen { password, out, account } => generate_and_store_keypair(password, out, *account),
+        Commands::Keygen {
+            password,
+            out,
+            account,
+        } => generate_and_store_keypair(password, out, *account),
         // Add more command matches here in the future
     }
 }
@@ -68,7 +70,8 @@ fn generate_and_store_keypair(password: &str, out: &str, account: u32) {
         Some("Validator signing key".to_string()),
         None, // random IV
         kdf,
-    ).expect("Keystore encryption failed");
+    )
+    .expect("Keystore encryption failed");
 
     // Serialize keystore (implement serde if needed)
     // let keystore_json = serde_json::to_string_pretty(&keystore).expect("Serialization failed");
