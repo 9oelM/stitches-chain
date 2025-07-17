@@ -59,7 +59,7 @@ pub struct ScryptKdfParamsBuilder {
     pub salt: Vec<u8>,
 }
 
-/// Parameters for the Scrypt key derivation function (KDF).
+/// Processed parameters for the Scrypt key derivation function (KDF).
 #[derive(Debug, Clone)]
 pub struct ScryptKdfParams {
     /// Log2 of CPU/Memory cost parameter 'n'.

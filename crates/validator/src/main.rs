@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use bls_keystore::derivation_path::DerivationPath;
 use blst::min_pk::SecretKey;
 use clap::{Parser, Subcommand};
@@ -21,7 +23,7 @@ enum Commands {
         password: String,
         /// Output file path for the keystore JSON
         #[arg(short, long)]
-        out: String,
+        out: PathBuf,
         /// Validator account index (default: 0)
         #[arg(long, default_value_t = 0)]
         account: u32,
@@ -35,14 +37,14 @@ fn main() {
     match &cli.command {
         Commands::Keygen {
             password,
-            out,
+            pathbuf,
             account,
-        } => generate_and_store_keypair(password, out, *account),
+        } => generate_and_store_keypair(password, pathbuf, *account),
         // Add more command matches here in the future
     }
 }
 
-fn generate_and_store_keypair(password: &str, out: &str, account: u32) {
+fn generate_and_store_keypair(password: &str, pathbuf: &PathBuf, account: u32) {
     let mut ikm = [0u8; 32];
     rand::rng().fill_bytes(&mut ikm);
 
