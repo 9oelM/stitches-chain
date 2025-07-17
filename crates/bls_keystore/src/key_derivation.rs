@@ -14,8 +14,8 @@ pub enum KeyDerivationError {
  * Trait for key derivation methods such as PBKDF2 and Scrypt.
  */
 pub trait KeyDerivationMethod {
-    /// Derive a key from a password and salt
-    fn derive_key(&self, password: &[u8]) -> Result<Vec<u8>, KeyDerivationError>;
+    /// Derive a 32-byte key from a password and salt (16 bytes for AES + 16 bytes for checksum)
+    fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError>;
 
     /// Get the function identifier for serialization
     fn crypto_function(&self) -> CryptoFunction;

@@ -25,13 +25,22 @@ pub struct Pbkdf2Kdf {
     params: Pbkdf2KdfParams,
 }
 
+pub struct Pbkdf2KdfParamsBuilder {
+    c: u32,
+    /// Spec does not specify the length of the salt, so we use a Vec<u8>
+    salt: Vec<u8>,
+    /// Pseudo-random function to use
+    prf: PseudoRandomFunction,
+}
+
 pub struct Pbkdf2KdfParams {
     /// Output of the derived key in bytes.
     ///
-    /// For example, dklen = 16 means that the derived key will be 16 bytes long.
+    /// For example, dklen = 32 means that the derived key will be 32 bytes long.
     ///
-    /// For AES-128-CTR, dklen must be 16 (bytes).
+    /// For ERC-2335 keystores, dklen must be 32 bytes (16 for AES-128-CTR + 16 for checksum).
     dklen: u8,
+    /// Number of iterations to use in the PBKDF2 algorithm
     c: u32,
     /// Spec does not specify the length of the salt, so we use a Vec<u8>
     salt: Vec<u8>,
@@ -46,9 +55,15 @@ impl Pbkdf2Kdf {
 }
 
 impl KeyDerivationMethod for Pbkdf2Kdf {
-    /// Derives a key from the given password and salt using PBKDF2.
-    fn derive_key(&self, password: &[u8]) -> Result<Vec<u8>, KeyDerivationError> {
-        let mut output = vec![0u8; self.params.dklen as usize];
+    /// Derives a 32-byte key from the given password and salt using PBKDF2.
+    fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
+        // ERC-2335 requires exactly 32 bytes
+        assert_eq!(
+            self.params.dklen, 32,
+            "ERC-2335 requires dklen to be 32 bytes"
+        );
+
+        let mut output = [0u8; 32];
 
         match self.params.prf {
             PseudoRandomFunction::Sha256 => {
@@ -81,12 +96,12 @@ impl KeyDerivationMethod for Pbkdf2Kdf {
     }
 }
 
-impl TryFrom<Pbkdf2KdfParams> for Pbkdf2Kdf {
+impl TryFrom<Pbkdf2KdfParamsBuilder> for Pbkdf2Kdf {
     type Error = CreatePbkdfParamsError;
 
     /// Refer to https://github.com/ethereum/staking-deposit-cli/blob/948d3fc358fdae54ff47dd8045206276b0b6b914/staking_deposit/utils/crypto.py#L41C27-L41C71
     /// for parameter validation
-    fn try_from(params: Pbkdf2KdfParams) -> Result<Self, Self::Error> {
+    fn try_from(params: Pbkdf2KdfParamsBuilder) -> Result<Self, Self::Error> {
         if let PseudoRandomFunction::Sha256 = params.prf {
             if params.c < (2_u32.pow(18)) {
                 return Err(CreatePbkdfParamsError::InsecureParameters { c: params.c });
@@ -94,7 +109,7 @@ impl TryFrom<Pbkdf2KdfParams> for Pbkdf2Kdf {
         }
 
         Ok(Self::new(Pbkdf2KdfParams {
-            dklen: params.dklen,
+            dklen: 32, // 16 for AES, 16 for checksum
             c: params.c,
             salt: params.salt,
             prf: params.prf,

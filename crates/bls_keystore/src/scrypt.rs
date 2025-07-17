@@ -53,12 +53,6 @@ pub struct ScryptKdfParamsBuilder {
     ///
     /// Example value: 1
     p: u32,
-    /// Output of the derived key in bytes.
-    ///
-    /// For example, dklen = 16 means that the derived key will be 16 bytes long.
-    ///
-    /// For AES-128-CTR, dklen must be 16 (bytes).
-    dklen: u8,
     /// Spec does not specify the length of the salt, so we use a `Vec<u8>`
     salt: Vec<u8>,
 }
@@ -85,9 +79,9 @@ pub struct ScryptKdfParams {
     p: u32,
     /// Output of the derived key in bytes.
     ///
-    /// For example, dklen = 16 means that the derived key will be 16 bytes long.
+    /// For example, dklen = 32 means that the derived key will be 32 bytes long.
     ///
-    /// For AES-128-CTR, dklen must be 16 (bytes).
+    /// For ERC-2335 keystores, dklen must be 32 bytes (16 for AES-128-CTR + 16 for checksum).
     dklen: u8,
     /// Spec does not specify the length of the salt, so we use a `Vec<u8>`
     salt: Vec<u8>,
@@ -107,21 +101,27 @@ impl ScryptKdf {
 }
 
 impl KeyDerivationMethod for ScryptKdf {
-    fn derive_key(&self, password: &[u8]) -> Result<Vec<u8>, KeyDerivationError> {
-        let mut derived_key = vec![0u8; self.params.dklen as usize];
+    fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
+        // ERC-2335 requires exactly 32 bytes
+        assert_eq!(
+            self.params.dklen, 32,
+            "ERC-2335 requires dklen to be 32 bytes"
+        );
+
+        let mut derived_key = [0u8; 32];
 
         let scrypt_params = scrypt::Params::new(
             self.params.log2_n,
             self.params.r,
             self.params.p,
-            self.params.dklen.into(),
+            32, // Always 32 bytes for ERC-2335
         )
         .map_err(|e| KeyDerivationError::Scrypt(ScryptKdfToDerivedKeyError::InvalidParams(e)))?;
         scrypt::scrypt(
             password,
             &self.params.salt,
             &scrypt_params,
-            derived_key.as_mut_slice(),
+            &mut derived_key,
         )
         .map_err(|e| KeyDerivationError::Scrypt(ScryptKdfToDerivedKeyError::InvalidOutputLen(e)))?;
         Ok(derived_key)
@@ -174,7 +174,7 @@ impl TryFrom<ScryptKdfParamsBuilder> for ScryptKdf {
             log2_n,
             r: params.r,
             p: params.p,
-            dklen: params.dklen,
+            dklen: 32, // 16 for AES, 16 for checksum
             salt: params.salt,
         }))
     }

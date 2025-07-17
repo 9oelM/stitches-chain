@@ -1,8 +1,8 @@
 //! BLS12-381 Keystore Implementation (ERC-2335)
 //!
-//! 1. Password + Salt ──► PBKDF2/Scrypt ──► Derived Key (16 bytes)
-//! 2. Private Key + Derived Key ──► AES-128-CTR ──► Encrypted Key
-//! 3. Encrypted Key + Derived Key ──► SHA-256 ──► Checksum
+//! 1. Password + Salt ──► PBKDF2/Scrypt ──► Derived Key (32 bytes)
+//! 2. Private Key + First 16 bytes of Derived Key ──► AES-128-CTR ──► Encrypted Key
+//! 3. Encrypted Key + Last 16 bytes of Derived Key ──► SHA-256 ──► Checksum
 
 use aes::{
     Aes128,
@@ -49,6 +49,18 @@ pub enum EncryptError {
     SecretKeyConversionBlstError { e: u32 },
     #[error("invalid AES IV length, expected 16 bytes")]
     InvalidAesIvLength,
+}
+
+#[derive(Debug, Error)]
+pub enum DecryptError {
+    #[error(transparent)]
+    KeyDerivationError(KeyDerivationError),
+    #[error("checksum verification failed")]
+    ChecksumMismatch,
+    #[error("invalid secret key length, expected 32 bytes but got {actual}")]
+    InvalidSecretKeyLength { actual: usize },
+    #[error("invalid checksum length, expected 32 bytes but got {actual}")]
+    InvalidChecksumLength { actual: usize },
 }
 
 /// Spec:
@@ -117,12 +129,12 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
         let aes_iv: [u8; 16] = match aes_iv {
             Some(iv) => iv
                 .try_into()
-                .map_err(|_| EncryptError::InvalidAesIvLength)?, // Handle invalid AES IV length
+                .map_err(|_| EncryptError::InvalidAesIvLength)?,
             None => rand::rng().random::<[u8; 16]>(),
         };
         let decryption_key = kdf
             .derive_key(password)
-            .map_err(EncryptError::KeyDerivationError)?; // Handle key derivation error
+            .map_err(EncryptError::KeyDerivationError)?;
         let key = GenericArray::from_slice(&decryption_key[..16]);
         let nonce = GenericArray::from_slice(&aes_iv);
 
@@ -162,6 +174,48 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
             pubkey: pubkey.to_vec(),
             crypto: keystore_crypto,
         })
+    }
+
+    /// Decrypt a BLS secret key from an ERC-2335 keystore format.
+    pub fn decrypt(&self, password: &[u8]) -> Result<[u8; 32], DecryptError> {
+        // Derive the decryption key using the same KDF and password
+        let decryption_key = self
+            .crypto
+            .kdf
+            .derive_key(password)
+            .map_err(DecryptError::KeyDerivationError)?;
+
+        // Verify checksum before decryption
+        let mut hasher = Sha256::new();
+        hasher.update(&decryption_key[16..32]);
+        hasher.update(&self.crypto.cipher.message);
+        let computed_checksum: [u8; 32] = hasher.finalize().into();
+        let supplied_checksum: [u8; 32] = self
+            .crypto
+            .checksum
+            .message
+            .clone()
+            .try_into()
+            .map_err(|v: Vec<u8>| DecryptError::InvalidChecksumLength { actual: v.len() })?;
+
+        if computed_checksum != supplied_checksum {
+            return Err(DecryptError::ChecksumMismatch);
+        }
+
+        // Decrypt the secret key using AES-128-CTR
+        let key = GenericArray::from_slice(&decryption_key[..16]);
+        let nonce = GenericArray::from_slice(&self.crypto.cipher.params.iv);
+
+        let mut cipher = Ctr128BE::<Aes128>::new(key, nonce);
+        let mut decrypted_key = self.crypto.cipher.message.clone();
+        cipher.apply_keystream(&mut decrypted_key);
+
+        // Validate the decrypted key length (BLS private keys should be 32 bytes)
+        let decrypted_key: [u8; 32] = decrypted_key
+            .try_into()
+            .map_err(|v: Vec<u8>| DecryptError::InvalidSecretKeyLength { actual: v.len() })?;
+
+        Ok(decrypted_key)
     }
 }
 
