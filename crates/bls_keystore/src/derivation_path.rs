@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
@@ -157,7 +158,24 @@ impl FromStr for DerivationPath {
     }
 }
 
+impl Serialize for DerivationPath {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
 
+impl<'de> Deserialize<'de> for DerivationPath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let path_str = String::deserialize(deserializer)?;
+        DerivationPath::from_str(&path_str).map_err(serde::de::Error::custom)
+    }
+}
 
 #[cfg(test)]
 mod tests {

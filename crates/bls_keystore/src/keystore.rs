@@ -12,7 +12,7 @@ use blst::min_pk::SecretKey;
 use ctr::Ctr128BE;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use sha2::Digest;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -100,10 +100,6 @@ pub struct KeyStore<KDF: KeyDerivationMethod> {
     /// The path records exactly how to re-derive this key if needed.
     /// If you lose the raw private key but have the seed and the path, you can recreate
     /// the exact same private/public keypair.
-    #[serde(
-        serialize_with = "serialize_path",
-        deserialize_with = "deserialize_path"
-    )]
     pub path: DerivationPath,
     /// The spec does not specify the length of the public key.
     /// We leave it as a Vec<u8> to allow for flexibility.
@@ -148,7 +144,7 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
         let mut cipher_message = secret_key.to_vec();
         cipher.apply_keystream(&mut cipher_message);
 
-        let mut hasher = Sha256::new();
+        let mut hasher = sha2::Sha256::new();
         hasher.update(&decryption_key[16..32]);
         hasher.update(&cipher_message);
 
@@ -163,12 +159,10 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
         let keystore_crypto = KeyStoreCrypto {
             kdf,
             checksum: Sha2Checksum {
-                function: "sha256".to_string(),
                 message: checksum_message,
                 params: Sha2ChecksumParams {},
             },
             cipher: Aes128CtrCipher {
-                function: "aes-128-ctr".to_string(),
                 params: Aes128CtrCipherParams { iv: aes_iv },
                 message: cipher_message,
             },
@@ -194,7 +188,7 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
             .map_err(DecryptError::KeyDerivationError)?;
 
         // Verify checksum before decryption
-        let mut hasher = Sha256::new();
+        let mut hasher = sha2::Sha256::new();
         hasher.update(&decryption_key[16..32]);
         hasher.update(&self.crypto.cipher.message);
         let computed_checksum: [u8; 32] = hasher.finalize().into();
@@ -227,8 +221,35 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Sha256Literal {}
+
+impl Serialize for Sha256Literal {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str("sha256")
+    }
+}
+
+impl<'de> Deserialize<'de> for Sha256Literal {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        if s != "sha256" {
+            return Err(serde::de::Error::custom(format!(
+                "Expected 'sha256', got '{s}'"
+            )));
+        }
+        Ok(Sha256Literal {})
+    }
+}
+
 // Note: deliberately left empty
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sha2ChecksumParams {}
 
 /// Used for checksum verification.
@@ -236,16 +257,21 @@ pub struct Sha2ChecksumParams {}
 /// Creates a hash of the encrypted data to verify integrity.
 ///
 /// Helps detect if the encrypted data has been tampered with or corrupted.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Sha2Checksum {
-    #[serde(rename = "function")]
-    pub function: String,
+    pub params: Sha2ChecksumParams,
+    pub message: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Sha2ChecksumSerde {
+    pub function: Sha256Literal,
     pub params: Sha2ChecksumParams,
     #[serde(with = "hex")]
     pub message: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Aes128CtrCipherParams {
     /// Initialization Vector (IV) for AES-128-CTR mode
     ///
@@ -255,10 +281,8 @@ pub struct Aes128CtrCipherParams {
 }
 
 /// Takes the derived key from PBKDF2 or Scrypt to encrypts/decrypt the private key
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Aes128CtrCipher {
-    #[serde(rename = "function")]
-    pub function: String,
     pub params: Aes128CtrCipherParams,
     #[serde(with = "hex")]
     pub message: Vec<u8>,
@@ -276,32 +300,38 @@ impl From<CryptoFunction> for &str {
     }
 }
 
-/// Custom serialization for DerivationPath to string format
-fn serialize_path<S>(path: &DerivationPath, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    use std::fmt::Display;
-    serializer.serialize_str(&path.to_string())
+impl Serialize for Sha2Checksum {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let serialize_struct = Sha2ChecksumSerde {
+            function: Sha256Literal {},
+            params: self.params.clone(),
+            message: self.message.clone(),
+        };
+        serialize_struct.serialize(serializer)
+    }
 }
 
-/// Custom deserialization for DerivationPath from string format
-fn deserialize_path<'de, D>(deserializer: D) -> Result<DerivationPath, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use std::str::FromStr;
-    let path_str = String::deserialize(deserializer)?;
-    DerivationPath::from_str(&path_str).map_err(serde::de::Error::custom)
+impl<'de> Deserialize<'de> for Sha2Checksum {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let serialized: Sha2ChecksumSerde = Sha2ChecksumSerde::deserialize(deserializer)?;
+        Ok(Sha2Checksum {
+            params: serialized.params,
+            message: serialized.message,
+        })
+    }
 }
+
 /// Testing vectors came from https://github.com/ethereum/staking-deposit-cli/tree/948d3fc358fdae54ff47dd8045206276b0b6b914/tests/test_key_handling/test_key_derivation
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        pbkdf::{Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction},
-        scrypt::{ScryptKdf, ScryptKdfParamsBuilder},
-    };
+    use crate::pbkdf::{Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction};
     use hex;
     use serde_json;
     use std::str::FromStr;

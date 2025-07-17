@@ -1,12 +1,8 @@
 use bls_keystore::derivation_path::DerivationPath;
-use bls_keystore::keystore::KeyStore;
-use bls_keystore::pbkdf::Pbkdf2Kdf;
 use blst::min_pk::SecretKey;
 use clap::{Parser, Subcommand};
 use hex::encode;
 use rand::RngCore;
-use std::fs::File;
-use std::io::Write;
 
 #[derive(Parser)]
 #[command(name = "Stitches Validator Client")]
@@ -59,26 +55,26 @@ fn generate_and_store_keypair(password: &str, out: &str, account: u32) {
     // Use EIP-2334 path for validator signing key
     let path = DerivationPath::new_signing(account);
 
-    // Create PBKDF2 KDF parameters (example values)
-    let kdf = Pbkdf2Kdf::default();
+    // // Create PBKDF2 KDF parameters (example values)
+    // let kdf = Pbkdf2Kdf::default();
 
-    // Encrypt and create keystore
-    let keystore = KeyStore::encrypt(
-        &sk.to_bytes(),
-        password.as_bytes(),
-        path,
-        Some("Validator signing key".to_string()),
-        None, // random IV
-        kdf,
-    )
-    .expect("Keystore encryption failed");
+    // // Encrypt and create keystore
+    // let keystore = KeyStore::encrypt(
+    //     &sk.to_bytes(),
+    //     password.as_bytes(),
+    //     path,
+    //     Some("Validator signing key".to_string()),
+    //     None, // random IV
+    //     kdf,
+    // )
+    // .expect("Keystore encryption failed");
 
-    // Serialize keystore (implement serde if needed)
-    // let keystore_json = serde_json::to_string_pretty(&keystore).expect("Serialization failed");
+    // // Serialize keystore (implement serde if needed)
+    // // let keystore_json = serde_json::to_string_pretty(&keystore).expect("Serialization failed");
 
-    // // Write to file
-    // let mut file = File::create(out).expect("Failed to create output file");
-    // file.write_all(keystore_json.as_bytes()).expect("Failed to write keystore");
+    // // // Write to file
+    // // let mut file = File::create(out).expect("Failed to create output file");
+    // // file.write_all(keystore_json.as_bytes()).expect("Failed to write keystore");
 
     // println!("Keystore written to {}", out);
 }
