@@ -22,9 +22,6 @@ use crate::{
     scrypt::ScryptKdf,
 };
 
-// TODO: more precise types
-const HMAC_SHA256: &str = "hmac-sha256";
-
 /// String identifier that tells the client code or parser
 /// which algorithm to use for KDF, cipher, and checksum
 /// operations when decrypting or verifying the keystore.
@@ -257,7 +254,3 @@ impl From<CryptoFunction> for &str {
         }
     }
 }
-
-/// Testing vectors came from https://github.com/ethereum/staking-deposit-cli/tree/948d3fc358fdae54ff47dd8045206276b0b6b914/tests/test_key_handling/test_key_derivation
-#[cfg(test)]
-mod tests {}

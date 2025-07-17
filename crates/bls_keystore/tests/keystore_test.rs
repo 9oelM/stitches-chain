@@ -30,6 +30,7 @@ mod tests {
         "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
 
     // Helper function to create a keystore from test vector components
+    #[allow(clippy::too_many_arguments)]
     fn create_test_keystore<KDF>(
         kdf: KDF,
         iv: [u8; 16],

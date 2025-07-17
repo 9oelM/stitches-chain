@@ -8,6 +8,8 @@ pub enum KeyDerivationError {
     Scrypt(ScryptKdfToDerivedKeyError),
     #[error("")]
     Pbkdf2(),
+    #[error("ERC-2335 requires dklen to be 32 bytes, but got {dklen} bytes")]
+    InvalidDklen { dklen: u8 },
 }
 
 /**
