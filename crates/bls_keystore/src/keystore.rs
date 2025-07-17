@@ -23,6 +23,7 @@ use crate::{
     pbkdf::Pbkdf2Kdf,
     scrypt::ScryptKdf,
     sha256_checksum::{Sha2Checksum, Sha2ChecksumParams},
+    serde_helper::{option_string_as_empty, option_string_from_empty}
 };
 
 /// String identifier that tells the client code or parser
@@ -85,7 +86,7 @@ pub struct KeyStore<KDF: KeyDerivationMethod> {
     pub version: u8,
     /// The uuid field is a 128-bit (16-byte) identifier as specified by RFC 4122
     pub uuid: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "option_string_as_empty",  deserialize_with = "option_string_from_empty")]
     pub description: Option<String>,
     /// Path defined by https://eips.ethereum.org/EIPS/eip-2334.
     ///
