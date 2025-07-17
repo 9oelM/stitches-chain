@@ -28,6 +28,7 @@ pub enum ScryptKdfToDerivedKeyError {
 }
 
 /// Unprocessed parameters for the Scrypt key derivation function (KDF).
+#[derive(Debug, Clone)]
 pub struct ScryptKdfParamsBuilder {
     /// CPU/Memory cost parameter.
     ///
@@ -58,6 +59,7 @@ pub struct ScryptKdfParamsBuilder {
 }
 
 /// Parameters for the Scrypt key derivation function (KDF).
+#[derive(Debug, Clone)]
 pub struct ScryptKdfParams {
     /// Log2 of CPU/Memory cost parameter 'n'.
     log2_n: u8,
@@ -90,6 +92,7 @@ pub struct ScryptKdfParams {
 /// Similar to PBKDF2, but uses Scrypt algorithm.
 ///
 /// More resistant to hardware attacks than PBKDF2.
+#[derive(Debug, Clone)]
 pub struct ScryptKdf {
     params: ScryptKdfParams,
 }
