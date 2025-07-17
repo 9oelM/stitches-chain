@@ -3,7 +3,7 @@ use thiserror::Error;
 
 use crate::{
     key_derivation::{KeyDerivationError, KeyDerivationMethod},
-    keystore::CryptoFunction,
+    keystore::KdfLiteral,
 };
 
 #[derive(Debug, Error)]
@@ -151,8 +151,8 @@ impl KeyDerivationMethod for ScryptKdf {
         Ok(derived_key)
     }
 
-    fn crypto_function(&self) -> CryptoFunction {
-        CryptoFunction::Scrypt
+    fn kdf(&self) -> KdfLiteral {
+        KdfLiteral::Scrypt
     }
 
     fn salt(&self) -> Vec<u8> {

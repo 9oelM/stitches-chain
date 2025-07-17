@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{keystore::CryptoFunction, scrypt::ScryptKdfToDerivedKeyError};
+use crate::{keystore::KdfLiteral, scrypt::ScryptKdfToDerivedKeyError};
 
 #[derive(Debug, Error)]
 pub enum KeyDerivationError {
@@ -21,7 +21,7 @@ pub trait KeyDerivationMethod {
     fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError>;
 
     /// Get the function identifier for serialization
-    fn crypto_function(&self) -> CryptoFunction;
+    fn kdf(&self) -> KdfLiteral;
 
     /// Get the salt used for key derivation
     fn salt(&self) -> Vec<u8>;

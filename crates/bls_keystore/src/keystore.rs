@@ -17,20 +17,20 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
+    aes_128_cipher::{Aes128CtrCipher, Aes128CtrCipherParams},
     derivation_path::DerivationPath,
     key_derivation::{KeyDerivationError, KeyDerivationMethod},
     pbkdf::Pbkdf2Kdf,
     scrypt::ScryptKdf,
+    sha256_checksum::{Sha2Checksum, Sha2ChecksumParams},
 };
 
 /// String identifier that tells the client code or parser
 /// which algorithm to use for KDF, cipher, and checksum
 /// operations when decrypting or verifying the keystore.
-pub enum CryptoFunction {
+pub enum KdfLiteral {
     Pbkdf2,
     Scrypt,
-    Sha256,
-    Aes128Ctr,
 }
 
 /// Key derivation functions (KDF).
@@ -221,109 +221,13 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Sha256Literal {}
-
-impl Serialize for Sha256Literal {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str("sha256")
-    }
-}
-
-impl<'de> Deserialize<'de> for Sha256Literal {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        if s != "sha256" {
-            return Err(serde::de::Error::custom(format!(
-                "Expected 'sha256', got '{s}'"
-            )));
-        }
-        Ok(Sha256Literal {})
-    }
-}
-
-// Note: deliberately left empty
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Sha2ChecksumParams {}
-
-/// Used for checksum verification.
-///
-/// Creates a hash of the encrypted data to verify integrity.
-///
-/// Helps detect if the encrypted data has been tampered with or corrupted.
-#[derive(Debug, Clone)]
-pub struct Sha2Checksum {
-    pub params: Sha2ChecksumParams,
-    pub message: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Sha2ChecksumSerde {
-    pub function: Sha256Literal,
-    pub params: Sha2ChecksumParams,
-    #[serde(with = "hex")]
-    pub message: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Aes128CtrCipherParams {
-    /// Initialization Vector (IV) for AES-128-CTR mode
-    ///
-    /// Must be 16 bytes (128 bits) and unique for each encryption
-    #[serde(with = "hex")]
-    pub iv: [u8; 16],
-}
-
-/// Takes the derived key from PBKDF2 or Scrypt to encrypts/decrypt the private key
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Aes128CtrCipher {
-    pub params: Aes128CtrCipherParams,
-    #[serde(with = "hex")]
-    pub message: Vec<u8>,
-}
-
 /// Serialize the function to a string according to the spec
-impl From<CryptoFunction> for &str {
-    fn from(func: CryptoFunction) -> Self {
+impl From<KdfLiteral> for &str {
+    fn from(func: KdfLiteral) -> Self {
         match func {
-            CryptoFunction::Pbkdf2 => "pbkdf2",
-            CryptoFunction::Sha256 => "sha256",
-            CryptoFunction::Aes128Ctr => "aes-128-ctr",
-            CryptoFunction::Scrypt => "scrypt",
+            KdfLiteral::Pbkdf2 => "pbkdf2",
+            KdfLiteral::Scrypt => "scrypt",
         }
-    }
-}
-
-impl Serialize for Sha2Checksum {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let serialize_struct = Sha2ChecksumSerde {
-            function: Sha256Literal {},
-            params: self.params.clone(),
-            message: self.message.clone(),
-        };
-        serialize_struct.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for Sha2Checksum {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let serialized: Sha2ChecksumSerde = Sha2ChecksumSerde::deserialize(deserializer)?;
-        Ok(Sha2Checksum {
-            params: serialized.params,
-            message: serialized.message,
-        })
     }
 }
 
