@@ -1,8 +1,8 @@
 //! BLS12-381 Keystore Implementation (ERC-2335)
 //!
-//! 1. Password + Salt ──► PBKDF2/Scrypt ──► Derived Key (16 bytes)
-//! 2. Private Key + Derived Key ──► AES-128-CTR ──► Encrypted Key
-//! 3. Encrypted Key + Derived Key ──► SHA-256 ──► Checksum
+//! 1. Password + Salt ──► PBKDF2/Scrypt ──► Derived Key (32 bytes)
+//! 2. Private Key + First 16 bytes of Derived Key ──► AES-128-CTR ──► Encrypted Key
+//! 3. Encrypted Key + Last 16 bytes of Derived Key ──► SHA-256 ──► Checksum
 
 use aes::{
     Aes128,
@@ -21,9 +21,6 @@ use crate::{
     pbkdf::Pbkdf2Kdf,
     scrypt::ScryptKdf,
 };
-
-// TODO: more precise types
-const HMAC_SHA256: &str = "hmac-sha256";
 
 /// String identifier that tells the client code or parser
 /// which algorithm to use for KDF, cipher, and checksum
@@ -51,6 +48,18 @@ pub enum EncryptError {
     InvalidAesIvLength,
 }
 
+#[derive(Debug, Error)]
+pub enum DecryptError {
+    #[error(transparent)]
+    KeyDerivationError(KeyDerivationError),
+    #[error("checksum verification failed")]
+    ChecksumMismatch,
+    #[error("invalid secret key length, expected 32 bytes but got {actual}")]
+    InvalidSecretKeyLength { actual: usize },
+    #[error("invalid checksum length, expected 32 bytes but got {actual}")]
+    InvalidChecksumLength { actual: usize },
+}
+
 /// Spec:
 /// - [ERC-2335: BLS12-381 Keystore](https://eips.ethereum.org/EIPS/eip-2335)
 ///
@@ -71,10 +80,10 @@ pub enum EncryptError {
 pub struct KeyStore<KDF: KeyDerivationMethod> {
     /// Version of the keystore format. Currently, [the spec](https://eips.ethereum.org/EIPS/eip-2335) defines only one version, which is 4.
     /// Left as u8 for backward compatibility.
-    version: u8,
+    pub version: u8,
     /// The uuid field is a 128-bit (16-byte) identifier as specified by RFC 4122
-    uuid: Uuid,
-    description: Option<String>,
+    pub uuid: Uuid,
+    pub description: Option<String>,
     /// Path defined by https://eips.ethereum.org/EIPS/eip-2334.
     ///
     /// The path field in an EIP-2335 keystore is a [BIP-32](https://en.bitcoin.it/wiki/BIP_0032)-style derivation path string
@@ -88,19 +97,19 @@ pub struct KeyStore<KDF: KeyDerivationMethod> {
     /// The path records exactly how to re-derive this key if needed.
     /// If you lose the raw private key but have the seed and the path, you can recreate
     /// the exact same private/public keypair.
-    path: DerivationPath,
+    pub path: DerivationPath,
     /// The spec does not specify the length of the public key.
     /// We leave it as a Vec<u8> to allow for flexibility.
     /// For example, it can be 48 bytes for BLS12-381 (compressed form).
-    pubkey: Vec<u8>,
+    pub pubkey: Vec<u8>,
     /// Cryptographic functions used for key derivation, encryption, and checksum.
-    crypto: KeyStoreCrypto<KDF>,
+    pub crypto: KeyStoreCrypto<KDF>,
 }
 
 pub struct KeyStoreCrypto<KDF> {
-    kdf: KDF,
-    checksum: Sha2Checksum,
-    cipher: Aes128CtrCipher,
+    pub kdf: KDF,
+    pub checksum: Sha2Checksum,
+    pub cipher: Aes128CtrCipher,
 }
 
 impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
@@ -117,12 +126,12 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
         let aes_iv: [u8; 16] = match aes_iv {
             Some(iv) => iv
                 .try_into()
-                .map_err(|_| EncryptError::InvalidAesIvLength)?, // Handle invalid AES IV length
+                .map_err(|_| EncryptError::InvalidAesIvLength)?,
             None => rand::rng().random::<[u8; 16]>(),
         };
         let decryption_key = kdf
             .derive_key(password)
-            .map_err(EncryptError::KeyDerivationError)?; // Handle key derivation error
+            .map_err(EncryptError::KeyDerivationError)?;
         let key = GenericArray::from_slice(&decryption_key[..16]);
         let nonce = GenericArray::from_slice(&aes_iv);
 
@@ -163,33 +172,75 @@ impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
             crypto: keystore_crypto,
         })
     }
+
+    /// Decrypt a BLS secret key from an ERC-2335 keystore format.
+    pub fn decrypt(&self, password: &[u8]) -> Result<[u8; 32], DecryptError> {
+        // Derive the decryption key using the same KDF and password
+        let decryption_key = self
+            .crypto
+            .kdf
+            .derive_key(password)
+            .map_err(DecryptError::KeyDerivationError)?;
+
+        // Verify checksum before decryption
+        let mut hasher = Sha256::new();
+        hasher.update(&decryption_key[16..32]);
+        hasher.update(&self.crypto.cipher.message);
+        let computed_checksum: [u8; 32] = hasher.finalize().into();
+        let supplied_checksum: [u8; 32] = self
+            .crypto
+            .checksum
+            .message
+            .clone()
+            .try_into()
+            .map_err(|v: Vec<u8>| DecryptError::InvalidChecksumLength { actual: v.len() })?;
+
+        if computed_checksum != supplied_checksum {
+            return Err(DecryptError::ChecksumMismatch);
+        }
+
+        // Decrypt the secret key using AES-128-CTR
+        let key = GenericArray::from_slice(&decryption_key[..16]);
+        let nonce = GenericArray::from_slice(&self.crypto.cipher.params.iv);
+
+        let mut cipher = Ctr128BE::<Aes128>::new(key, nonce);
+        let mut decrypted_key = self.crypto.cipher.message.clone();
+        cipher.apply_keystream(&mut decrypted_key);
+
+        // Validate the decrypted key length (BLS private keys should be 32 bytes)
+        let decrypted_key: [u8; 32] = decrypted_key
+            .try_into()
+            .map_err(|v: Vec<u8>| DecryptError::InvalidSecretKeyLength { actual: v.len() })?;
+
+        Ok(decrypted_key)
+    }
 }
 
 // Note: deliberately left empty
-struct Sha2ChecksumParams {}
+pub struct Sha2ChecksumParams {}
 
 /// Used for checksum verification.
 ///
 /// Creates a hash of the encrypted data to verify integrity.
 ///
 /// Helps detect if the encrypted data has been tampered with or corrupted.
-struct Sha2Checksum {
-    params: Sha2ChecksumParams,
-    message: Vec<u8>,
+pub struct Sha2Checksum {
+    pub params: Sha2ChecksumParams,
+    pub message: Vec<u8>,
 }
 
 pub struct Aes128CtrCipherParams {
     /// Initialization Vector (IV) for AES-128-CTR mode
     ///
     /// Must be 16 bytes (128 bits) and unique for each encryption
-    iv: [u8; 16],
+    pub iv: [u8; 16],
 }
 
 /// Takes the derived key from PBKDF2 or Scrypt to encrypts/decrypt the private key
 pub struct Aes128CtrCipher {
-    params: Aes128CtrCipherParams,
+    pub params: Aes128CtrCipherParams,
     /// Encrypted message
-    message: Vec<u8>,
+    pub message: Vec<u8>,
 }
 
 /// Serialize the function to a string according to the spec
@@ -203,7 +254,3 @@ impl From<CryptoFunction> for &str {
         }
     }
 }
-
-/// Testing vectors came from https://github.com/ethereum/staking-deposit-cli/tree/948d3fc358fdae54ff47dd8045206276b0b6b914/tests/test_key_handling/test_key_derivation
-#[cfg(test)]
-mod tests {}

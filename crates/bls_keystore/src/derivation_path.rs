@@ -1,3 +1,5 @@
+use std::fmt;
+use std::str::FromStr;
 use thiserror::Error;
 
 /// Purpose is set to 12381 which is the name of the curve (BLS12-381)
@@ -64,21 +66,37 @@ impl DerivationPath {
         }
     }
 
-    /// Parse a path string into a DerivationPath
-    pub fn from_string(path: &str) -> Result<Self, PathError> {
-        // Remove 'm/' prefix
-        let path = path.strip_prefix("m/").ok_or(PathError::InvalidFormat)?;
+    /// Check if this is a withdrawal key path
+    ///
+    /// The path for withdrawal keys is m/12381/3600/i/0 where i indicates the ith set of validator keys.
+    pub fn is_withdrawal(&self) -> bool {
+        self.signing_index.is_none()
+    }
 
-        // Split into components
+    /// Check if this is a signing key path
+    ///
+    /// The path for the signing key is m/12381/3600/i/0/0 where again,
+    /// i indicates the ith set of validator keys.
+    ///  
+    /// Another way of phrasing this is that the signing key is
+    /// the 0th child of the associated withdrawal key for that validator.
+    pub fn is_signing(&self) -> bool {
+        self.signing_index.is_some()
+    }
+}
+
+impl FromStr for DerivationPath {
+    type Err = PathError;
+
+    fn from_str(path: &str) -> Result<Self, Self::Err> {
+        let path = path.strip_prefix("m/").ok_or(PathError::InvalidFormat)?;
         let components: Vec<&str> = path.split('/').collect();
 
-        // Validate components length
         match components.len() {
-            4 | 5 => (), // Valid lengths for withdrawal and signing paths
+            4 | 5 => (),
             _ => return Err(PathError::InvalidFormat),
         }
 
-        // Parse components
         let purpose = components[0]
             .parse()
             .map_err(|_| PathError::InvalidFormat)?;
@@ -89,13 +107,10 @@ impl DerivationPath {
         let coin_type = components[1]
             .parse()
             .map_err(|_| PathError::InvalidFormat)?;
-
         let account = components[2]
             .parse()
             .map_err(|_| PathError::InvalidAccount)?;
-
         let use_index = components[3].parse().map_err(|_| PathError::InvalidUse)?;
-
         let signing_index = if components.len() == 5 {
             Some(
                 components[4]
@@ -114,38 +129,23 @@ impl DerivationPath {
             signing_index,
         })
     }
+}
 
-    /// Convert the path to its string representation
-    pub fn to_string(&self) -> String {
+impl fmt::Display for DerivationPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(signing) = self.signing_index {
-            format!(
+            write!(
+                f,
                 "m/{}/{}/{}/{}/{}",
                 self.purpose, self.coin_type, self.account, self.use_index, signing
             )
         } else {
-            format!(
+            write!(
+                f,
                 "m/{}/{}/{}/{}",
                 self.purpose, self.coin_type, self.account, self.use_index
             )
         }
-    }
-
-    /// Check if this is a withdrawal key path
-    ///
-    /// The path for withdrawal keys is m/12381/3600/i/0 where i indicates the ith set of validator keys.
-    pub fn is_withdrawal(&self) -> bool {
-        self.signing_index.is_none()
-    }
-
-    /// Check if this is a signing key path
-    ///
-    /// The path for the signing key is m/12381/3600/i/0/0 where again,
-    /// i indicates the ith set of validator keys.
-    ///  
-    /// Another way of phrasing this is that the signing key is
-    /// the 0th child of the associated withdrawal key for that validator.
-    pub fn is_signing(&self) -> bool {
-        self.signing_index.is_some()
     }
 }
 
@@ -171,17 +171,17 @@ mod tests {
 
     #[test]
     fn test_parse_path() {
-        let path = DerivationPath::from_string("m/12381/3600/0/0").unwrap();
+        let path = DerivationPath::from_str("m/12381/3600/0/0").unwrap();
         assert!(path.is_withdrawal());
 
-        let path = DerivationPath::from_string("m/12381/3600/0/0/0").unwrap();
+        let path = DerivationPath::from_str("m/12381/3600/0/0/0").unwrap();
         assert!(path.is_signing());
     }
 
     #[test]
     fn test_invalid_paths() {
-        assert!(DerivationPath::from_string("m/12382/3600/0/0").is_err());
-        assert!(DerivationPath::from_string("m/12381/3600/0").is_err());
-        assert!(DerivationPath::from_string("not_a_path").is_err());
+        assert!(DerivationPath::from_str("m/12382/3600/0/0").is_err());
+        assert!(DerivationPath::from_str("m/12381/3600/0").is_err());
+        assert!(DerivationPath::from_str("not_a_path").is_err());
     }
 }

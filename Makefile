@@ -1,4 +1,4 @@
-.PHONY: format fix-format lint fix-lint check all
+.PHONY: format fix-format lint fix-lint check test all
 
 format:
 	cargo fmt --all -- --check
@@ -13,5 +13,8 @@ fix-lint:
 	cargo clippy --all-targets --all-features --fix --allow-dirty -- -D warnings
 
 check: format lint
+
+test:
+	cargo test --verbose -- --nocapture
 
 all: fix-format fix-lint

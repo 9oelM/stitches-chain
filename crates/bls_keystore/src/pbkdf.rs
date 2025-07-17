@@ -25,18 +25,27 @@ pub struct Pbkdf2Kdf {
     params: Pbkdf2KdfParams,
 }
 
+pub struct Pbkdf2KdfParamsBuilder {
+    pub c: u32,
+    /// Spec does not specify the length of the salt, so we use a Vec<u8>
+    pub salt: Vec<u8>,
+    /// Pseudo-random function to use
+    pub prf: PseudoRandomFunction,
+}
+
 pub struct Pbkdf2KdfParams {
     /// Output of the derived key in bytes.
     ///
-    /// For example, dklen = 16 means that the derived key will be 16 bytes long.
+    /// For example, dklen = 32 means that the derived key will be 32 bytes long.
     ///
-    /// For AES-128-CTR, dklen must be 16 (bytes).
-    dklen: u8,
-    c: u32,
+    /// For ERC-2335 keystores, dklen must be 32 bytes (16 for AES-128-CTR + 16 for checksum).
+    pub dklen: u8,
+    /// Number of iterations to use in the PBKDF2 algorithm
+    pub c: u32,
     /// Spec does not specify the length of the salt, so we use a Vec<u8>
-    salt: Vec<u8>,
+    pub salt: Vec<u8>,
     /// Pseudo-random function to use
-    prf: PseudoRandomFunction,
+    pub prf: PseudoRandomFunction,
 }
 
 impl Pbkdf2Kdf {
@@ -46,9 +55,16 @@ impl Pbkdf2Kdf {
 }
 
 impl KeyDerivationMethod for Pbkdf2Kdf {
-    /// Derives a key from the given password and salt using PBKDF2.
-    fn derive_key(&self, password: &[u8]) -> Result<Vec<u8>, KeyDerivationError> {
-        let mut output = vec![0u8; self.params.dklen as usize];
+    /// Derives a 32-byte key from the given password and salt using PBKDF2.
+    fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
+        // The spec is not finalized, and currently dklen can only be 32 bytes.
+        if self.params.dklen != 32 {
+            return Err(KeyDerivationError::InvalidDklen {
+                dklen: self.params.dklen,
+            });
+        }
+
+        let mut output = [0u8; 32];
 
         match self.params.prf {
             PseudoRandomFunction::Sha256 => {
@@ -81,12 +97,12 @@ impl KeyDerivationMethod for Pbkdf2Kdf {
     }
 }
 
-impl TryFrom<Pbkdf2KdfParams> for Pbkdf2Kdf {
+impl TryFrom<Pbkdf2KdfParamsBuilder> for Pbkdf2Kdf {
     type Error = CreatePbkdfParamsError;
 
     /// Refer to https://github.com/ethereum/staking-deposit-cli/blob/948d3fc358fdae54ff47dd8045206276b0b6b914/staking_deposit/utils/crypto.py#L41C27-L41C71
     /// for parameter validation
-    fn try_from(params: Pbkdf2KdfParams) -> Result<Self, Self::Error> {
+    fn try_from(params: Pbkdf2KdfParamsBuilder) -> Result<Self, Self::Error> {
         if let PseudoRandomFunction::Sha256 = params.prf {
             if params.c < (2_u32.pow(18)) {
                 return Err(CreatePbkdfParamsError::InsecureParameters { c: params.c });
@@ -94,10 +110,62 @@ impl TryFrom<Pbkdf2KdfParams> for Pbkdf2Kdf {
         }
 
         Ok(Self::new(Pbkdf2KdfParams {
-            dklen: params.dklen,
+            dklen: 32, // 16 for AES, 16 for checksum
             c: params.c,
             salt: params.salt,
             prf: params.prf,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pbkdf::{
+        CreatePbkdfParamsError, Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction,
+    };
+
+    #[test]
+    fn test_insecure_parameters_sha256_below_threshold() {
+        // Test case where c < 2^18 (262144) for SHA256
+        let params = Pbkdf2KdfParamsBuilder {
+            c: 262143, // Just below 2^18
+            salt: vec![0u8; 32],
+            prf: PseudoRandomFunction::Sha256,
+        };
+
+        let result = Pbkdf2Kdf::try_from(params);
+
+        assert!(matches!(
+            result,
+            Err(CreatePbkdfParamsError::InsecureParameters { c: 262143 })
+        ));
+    }
+    #[test]
+    fn test_secure_parameters_sha256_at_threshold() {
+        // Test parameters exactly at the security threshold for SHA256
+        let params = Pbkdf2KdfParamsBuilder {
+            c: 262144, // Exactly 2^18
+            salt: vec![0u8; 32],
+            prf: PseudoRandomFunction::Sha256,
+        };
+
+        let result = Pbkdf2Kdf::try_from(params);
+
+        // This should succeed as it meets the minimum security requirement
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_secure_parameters_sha256_above_threshold() {
+        // Test parameters above the security threshold for SHA256
+        let params = Pbkdf2KdfParamsBuilder {
+            c: 262145, // Just above 2^18
+            salt: vec![0u8; 32],
+            prf: PseudoRandomFunction::Sha256,
+        };
+
+        let result = Pbkdf2Kdf::try_from(params);
+
+        assert!(result.is_ok());
     }
 }

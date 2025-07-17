@@ -1,7 +1,5 @@
 use clap::{Parser, Subcommand};
 
-const KEYGEN_SALT: &[u8] = b"BLS-SIG-KEYGEN-SALT-";
-
 #[derive(Parser)]
 #[command(name = "Stitches Validator Client")]
 #[command(about = "CLI tool for validator client operations", long_about = None)]
