@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    key_derivation::{KeyDerivationError, KeyDerivationMethod},
+    key_derivation::{KeyDerivationError, KeyDerivationFunction},
     keystore::KdfLiteral,
 };
 
@@ -123,7 +123,7 @@ impl ScryptKdf {
     }
 }
 
-impl KeyDerivationMethod for ScryptKdf {
+impl KeyDerivationFunction for ScryptKdf {
     fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
         // The spec is not finalized, and currently dklen can only be 32 bytes.
         if self.params.dklen != 32 {
@@ -513,7 +513,7 @@ mod tests {
 
         // Test the actual KDF functionality
         if let Ok(kdf) = result {
-            use crate::key_derivation::KeyDerivationMethod;
+            use crate::key_derivation::KeyDerivationFunction;
             let derived_key = kdf.derive_key(b"testpassword");
             assert!(
                 derived_key.is_ok(),

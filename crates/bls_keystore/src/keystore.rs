@@ -19,22 +19,21 @@ use uuid::Uuid;
 use crate::{
     aes_128_cipher::{Aes128CtrCipher, Aes128CtrCipherParams},
     derivation_path::DerivationPath,
-    key_derivation::{KeyDerivationError, KeyDerivationMethod},
+    key_derivation::{KeyDerivationError, KeyDerivationFunction},
     pbkdf::Pbkdf2Kdf,
     scrypt::ScryptKdf,
+    serde_helper::{option_string_as_empty, option_string_from_empty},
     sha256_checksum::{Sha2Checksum, Sha2ChecksumParams},
-    serde_helper::{option_string_as_empty, option_string_from_empty}
 };
 
-/// String identifier that tells the client code or parser
-/// which algorithm to use for KDF, cipher, and checksum
-/// operations when decrypting or verifying the keystore.
+/// String identifier that tells which KDF is used.
 pub enum KdfLiteral {
     Pbkdf2,
     Scrypt,
 }
 
-/// Key derivation functions (KDF).
+/// Key derivation functions enum that contains
+/// the specific KDF implementations.
 pub enum Kdf {
     Pbkdf2(Pbkdf2Kdf),
     Scrypt(ScryptKdf),
@@ -72,6 +71,10 @@ pub enum DecryptError {
 /// This struct describes a keystore containing an encrypted BLS private key.
 /// The actual algorithm has nothing to do with BLS.
 ///
+/// Currently, `KDF` can be either `Pbkdf2` or `Scrypt`.
+/// If the spec changes to support more KDFs,
+/// they just need to implement `KeyDerivationFunction` trait.
+///
 /// References:
 /// - https://github.com/ChainSafe/bls-keystore
 /// - https://github.com/ethereum/staking-deposit-cli/tree/master/staking_deposit/key_handling
@@ -80,13 +83,16 @@ pub enum DecryptError {
 /// - https://github.com/RustCrypto/password-hashes (Password hashing algorithms, like PBKDF2, Scrypt)
 ///
 #[derive(Serialize, Deserialize)]
-pub struct KeyStore<KDF: KeyDerivationMethod> {
+pub struct KeyStore<KDF: KeyDerivationFunction> {
     /// Version of the keystore format. Currently, [the spec](https://eips.ethereum.org/EIPS/eip-2335) defines only one version, which is 4.
     /// Left as u8 for backward compatibility.
     pub version: u8,
     /// The uuid field is a 128-bit (16-byte) identifier as specified by RFC 4122
     pub uuid: Uuid,
-    #[serde(serialize_with = "option_string_as_empty",  deserialize_with = "option_string_from_empty")]
+    #[serde(
+        serialize_with = "option_string_as_empty",
+        deserialize_with = "option_string_from_empty"
+    )]
     pub description: Option<String>,
     /// Path defined by https://eips.ethereum.org/EIPS/eip-2334.
     ///
@@ -118,7 +124,7 @@ pub struct KeyStoreCrypto<KDF> {
     pub cipher: Aes128CtrCipher,
 }
 
-impl<KDF: KeyDerivationMethod> KeyStore<KDF> {
+impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
     /// Encrypt a BLS secret key in an ERC-2335 keystore format.
     pub fn encrypt(
         secret_key: &[u8],

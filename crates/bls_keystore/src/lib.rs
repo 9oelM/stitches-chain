@@ -4,5 +4,5 @@ pub mod key_derivation;
 pub mod keystore;
 pub mod pbkdf;
 pub mod scrypt;
-pub mod sha256_checksum;
 pub(crate) mod serde_helper;
+pub mod sha256_checksum;

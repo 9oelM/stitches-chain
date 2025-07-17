@@ -4,7 +4,7 @@ use sha2;
 use thiserror::Error;
 
 use crate::{
-    key_derivation::{KeyDerivationError, KeyDerivationMethod},
+    key_derivation::{KeyDerivationError, KeyDerivationFunction},
     keystore::KdfLiteral,
 };
 
@@ -106,7 +106,7 @@ impl Pbkdf2Kdf {
     }
 }
 
-impl KeyDerivationMethod for Pbkdf2Kdf {
+impl KeyDerivationFunction for Pbkdf2Kdf {
     /// Derives a 32-byte key from the given password and salt using PBKDF2.
     fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
         // The spec is not finalized, and currently dklen can only be 32 bytes.

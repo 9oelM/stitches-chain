@@ -11,7 +11,7 @@ mod tests {
     use bls_keystore::{
         aes_128_cipher::{Aes128CtrCipher, Aes128CtrCipherParams},
         derivation_path::DerivationPath,
-        key_derivation::KeyDerivationMethod,
+        key_derivation::KeyDerivationFunction,
         keystore::{DecryptError, KeyStore, KeyStoreCrypto},
         pbkdf::{Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction},
         scrypt::{ScryptKdf, ScryptKdfParamsBuilder},
@@ -41,7 +41,7 @@ mod tests {
         description: Option<String>,
     ) -> KeyStore<KDF>
     where
-        KDF: KeyDerivationMethod,
+        KDF: KeyDerivationFunction,
     {
         let crypto = KeyStoreCrypto {
             kdf,

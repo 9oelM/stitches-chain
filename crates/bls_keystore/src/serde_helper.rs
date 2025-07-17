@@ -1,4 +1,7 @@
-pub(crate) fn option_string_as_empty<S>(value: &Option<String>, serializer: S) -> Result<S::Ok, S::Error>
+pub(crate) fn option_string_as_empty<S>(
+    value: &Option<String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
@@ -13,9 +16,5 @@ where
     D: serde::Deserializer<'de>,
 {
     let s: String = serde::Deserialize::deserialize(deserializer)?;
-    if s.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(s))
-    }
+    if s.is_empty() { Ok(None) } else { Ok(Some(s)) }
 }
