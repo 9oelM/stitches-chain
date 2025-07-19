@@ -1,9 +1,3 @@
-//! BLS12-381 Keystore Implementation (ERC-2335)
-//!
-//! 1. Password + Salt ──► PBKDF2/Scrypt ──► Derived Key (32 bytes)
-//! 2. Private Key + First 16 bytes of Derived Key ──► AES-128-CTR ──► Encrypted Key
-//! 3. Encrypted Key + Last 16 bytes of Derived Key ──► SHA-256 ──► Checksum
-
 use aes::{
     Aes128,
     cipher::{KeyIvInit, StreamCipher, generic_array::GenericArray},

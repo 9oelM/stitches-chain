@@ -106,6 +106,12 @@ impl Pbkdf2Kdf {
     }
 }
 
+impl Pbkdf2KdfParamsBuilder {
+    pub fn new(c: u32, salt: Vec<u8>, prf: PseudoRandomFunction) -> Self {
+        Self { c, salt, prf }
+    }
+}
+
 impl KeyDerivationFunction for Pbkdf2Kdf {
     /// Derives a 32-byte key from the given password and salt using PBKDF2.
     fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError> {

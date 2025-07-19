@@ -36,11 +36,13 @@ pub struct DerivationPath {
     purpose: u32,
     /// Coin type (3600 for ETH2)
     coin_type: u32,
-    /// Account index for different sets of keys
+    /// Identifies the validator or account. Each validator gets a unique account index (i).
     account: u32,
-    /// Use case index (0 for withdrawal keys)
+    /// Specifies the key’s use-case. For BLS keystores: 0 means withdrawal key.
+    /// Nothing else according to the spec yet.
     use_index: u32,
-    /// Optional extra index for signing keys
+    /// Optional extra index for a signing key.
+    /// Usually 0 for the first signing key.
     signing_index: Option<u32>,
 }
 
