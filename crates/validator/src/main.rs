@@ -28,6 +28,11 @@ fn main() {
 
     match &cli.command {
         Commands::Pbkdf2Keygen(args) => {
+            if args.keystore_path.exists() {
+                eprintln!("Error: Keystore path already exists: {}", args.keystore_path.display());
+                std::process::exit(1);
+            }
+
             let account = keygen::BlsAccount::new(args.account_index);
 
             let pbkdf2kdf: Pbkdf2Kdf = pbkdf::Pbkdf2KdfParamsBuilder::new(
@@ -39,7 +44,7 @@ fn main() {
             .expect("Failed to create PBKDF2 parameters");
 
             let keystore = bls_keystore::keystore::KeyStore::encrypt(
-                &account.pk.to_bytes(),
+                &account.sk.to_bytes(),
                 args.password.as_bytes(),
                 account.path.clone(),
                 None,
@@ -47,12 +52,12 @@ fn main() {
                 pbkdf2kdf,
             ).expect("Failed to create keystore");
 
-            if !args.keystore_path.exists() {
-                eprintln!("Error: Keystore path does not exist: {}", args.keystore_path.display());
-                std::process::exit(1);
+            let mut complete_keystore_path = args.keystore_path.display().to_string();
+            if args.keystore_path.extension().and_then(|s| s.to_str()) != Some("json") {
+                complete_keystore_path = format!("{}.json", args.keystore_path.display());
             }
 
-            std::fs::write(&args.keystore_path, serde_json::to_string(&keystore).expect("Failed to serialize keystore")).expect("Failed to write keystore to file");
+            std::fs::write(&complete_keystore_path, serde_json::to_string_pretty(&keystore).expect("Failed to serialize keystore")).expect("Failed to write keystore to file");
         }
         Commands::ScryptKeygen(args) => {}
     }
