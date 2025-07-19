@@ -2,7 +2,10 @@ use clap::{Parser, Subcommand, command};
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Run a validator client command
     Validator(validator::cli::Cli),
+    /// Run a beacon node command
+    BeaconNode(consensus::cli::Cli),
 }
 
 #[derive(Parser)]
@@ -20,5 +23,6 @@ fn main() {
         Commands::Validator(validator_cli) => {
             validator::cli::handle_validator_command(validator_cli);
         }
+        Commands::BeaconNode(beacon_node_cli) => {}
     }
 }
