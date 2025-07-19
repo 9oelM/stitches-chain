@@ -1,9 +1,17 @@
 use std::{path::PathBuf, str::FromStr};
 
-use bls_keystore::derivation_path::DerivationPath;
+use bls_keystore::{
+    derivation_path::DerivationPath,
+    pbkdf::{self, Pbkdf2Kdf},
+    scrypt::{self, ScryptKdf},
+};
 use blst::min_pk::{PublicKey, SecretKey};
 use clap::{Args, ValueEnum};
-use rand::RngCore;
+use rand::{Rng, RngCore};
+
+pub trait Keygen {
+    fn run(&self);
+}
 
 #[derive(ValueEnum, Debug, Clone)]
 pub enum PseudoRandomFunction {
@@ -79,8 +87,96 @@ pub struct ScryptKeygenArgs {
 
 pub struct BlsAccount {
     pub sk: SecretKey,
+    #[allow(unused)]
     pub pk: PublicKey,
     pub path: DerivationPath,
+}
+
+impl Keygen for Pbkdf2KeygenArgs {
+    fn run(&self) {
+        if self.keystore_path.exists() {
+            eprintln!(
+                "Error: Keystore path already exists: {}",
+                self.keystore_path.display()
+            );
+            std::process::exit(1);
+        }
+
+        let account = BlsAccount::new(self.account_index);
+
+        let pbkdf2kdf: Pbkdf2Kdf = pbkdf::Pbkdf2KdfParamsBuilder::new(
+            self.param_c,
+            rand::rng().random::<[u8; 32]>().to_vec(),
+            self.param_prf.clone().into(),
+        )
+        .try_into()
+        .expect("Failed to create PBKDF2 parameters");
+
+        let keystore = bls_keystore::keystore::KeyStore::encrypt(
+            &account.sk.to_bytes(),
+            self.password.as_bytes(),
+            account.path.clone(),
+            None,
+            None,
+            pbkdf2kdf,
+        )
+        .expect("Failed to create keystore");
+
+        let mut complete_keystore_path = self.keystore_path.display().to_string();
+        if self.keystore_path.extension().and_then(|s| s.to_str()) != Some("json") {
+            complete_keystore_path = format!("{}.json", self.keystore_path.display());
+        }
+
+        std::fs::write(
+            &complete_keystore_path,
+            serde_json::to_string_pretty(&keystore).expect("Failed to serialize keystore"),
+        )
+        .expect("Failed to write keystore to file");
+    }
+}
+
+impl Keygen for ScryptKeygenArgs {
+    fn run(&self) {
+        if self.keystore_path.exists() {
+            eprintln!(
+                "Error: Keystore path already exists: {}",
+                self.keystore_path.display()
+            );
+            std::process::exit(1);
+        }
+
+        let account = BlsAccount::new(self.account_index);
+
+        let scrypt_kdf: ScryptKdf = scrypt::ScryptKdfParamsBuilder::new(
+            self.param_n,
+            self.param_r,
+            self.param_p,
+            rand::rng().random::<[u8; 32]>().to_vec(),
+        )
+        .try_into()
+        .expect("Failed to create ScryptKdf parameters");
+
+        let keystore = bls_keystore::keystore::KeyStore::encrypt(
+            &account.sk.to_bytes(),
+            self.password.as_bytes(),
+            account.path.clone(),
+            None,
+            None,
+            scrypt_kdf,
+        )
+        .expect("Failed to create keystore");
+
+        let mut complete_keystore_path = self.keystore_path.display().to_string();
+        if self.keystore_path.extension().and_then(|s| s.to_str()) != Some("json") {
+            complete_keystore_path = format!("{}.json", self.keystore_path.display());
+        }
+
+        std::fs::write(
+            &complete_keystore_path,
+            serde_json::to_string_pretty(&keystore).expect("Failed to serialize keystore"),
+        )
+        .expect("Failed to write keystore to file");
+    }
 }
 
 impl BlsAccount {

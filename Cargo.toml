@@ -1,5 +1,5 @@
 [workspace]
 members = [
     "crates/consensus", "crates/bls_keystore",
-    "crates/validator",
+    "crates/validator", "crates/cli",
 ]

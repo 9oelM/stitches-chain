@@ -123,6 +123,13 @@ impl ScryptKdf {
     }
 }
 
+impl ScryptKdfParamsBuilder {
+    /// Creates a new ScryptKdfParamsBuilder with the provided parameters.
+    pub fn new(n: u32, r: u32, p: u32, salt: Vec<u8>) -> Self {
+        Self { n, r, p, salt }
+    }
+}
+
 impl KeyDerivationFunction for ScryptKdf {
     fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
         // The spec is not finalized, and currently dklen can only be 32 bytes.
