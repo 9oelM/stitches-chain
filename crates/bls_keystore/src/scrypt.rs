@@ -1,8 +1,9 @@
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    key_derivation::{KeyDerivationError, KeyDerivationMethod},
-    keystore::CryptoFunction,
+    key_derivation::{KeyDerivationError, KeyDerivationFunction},
+    keystore::KdfLiteral,
 };
 
 #[derive(Debug, Error)]
@@ -58,7 +59,7 @@ pub struct ScryptKdfParamsBuilder {
     pub salt: Vec<u8>,
 }
 
-/// Parameters for the Scrypt key derivation function (KDF).
+/// Processed parameters for the Scrypt key derivation function (KDF).
 #[derive(Debug, Clone)]
 pub struct ScryptKdfParams {
     /// Log2 of CPU/Memory cost parameter 'n'.
@@ -97,13 +98,39 @@ pub struct ScryptKdf {
     params: ScryptKdfParams,
 }
 
+/// Serialization structure for Scrypt KDF parameters matching ERC-2335 format
+#[derive(Serialize, Deserialize)]
+struct ScryptKdfParamsSerde {
+    dklen: u8,
+    n: u32,
+    p: u32,
+    r: u32,
+    #[serde(with = "hex")]
+    salt: Vec<u8>,
+}
+
+/// Serialization structure for the complete Scrypt KDF matching ERC-2335 format
+#[derive(Serialize, Deserialize)]
+struct ScryptKdfSerde {
+    function: String,
+    params: ScryptKdfParamsSerde,
+    message: String,
+}
+
 impl ScryptKdf {
     fn new(params: ScryptKdfParams) -> Self {
         ScryptKdf { params }
     }
 }
 
-impl KeyDerivationMethod for ScryptKdf {
+impl ScryptKdfParamsBuilder {
+    /// Creates a new ScryptKdfParamsBuilder with the provided parameters.
+    pub fn new(n: u32, r: u32, p: u32, salt: Vec<u8>) -> Self {
+        Self { n, r, p, salt }
+    }
+}
+
+impl KeyDerivationFunction for ScryptKdf {
     fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
         // The spec is not finalized, and currently dklen can only be 32 bytes.
         if self.params.dklen != 32 {
@@ -131,12 +158,60 @@ impl KeyDerivationMethod for ScryptKdf {
         Ok(derived_key)
     }
 
-    fn crypto_function(&self) -> CryptoFunction {
-        CryptoFunction::Scrypt
+    fn kdf(&self) -> KdfLiteral {
+        KdfLiteral::Scrypt
     }
 
     fn salt(&self) -> Vec<u8> {
         self.params.salt.clone()
+    }
+}
+
+impl Serialize for ScryptKdf {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let serde_struct = ScryptKdfSerde {
+            function: "scrypt".to_string(),
+            params: ScryptKdfParamsSerde {
+                dklen: self.params.dklen,
+                n: 2_u32.pow(self.params.log2_n as u32), // Convert log2_n back to n
+                p: self.params.p,
+                r: self.params.r,
+                salt: self.params.salt.clone(),
+            },
+            message: "".to_string(),
+        };
+        serde_struct.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ScryptKdf {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let serde_struct = ScryptKdfSerde::deserialize(deserializer)?;
+
+        // Validate that function is "scrypt"
+        if serde_struct.function != "scrypt" {
+            return Err(serde::de::Error::custom(format!(
+                "Expected function 'scrypt', got '{}'",
+                serde_struct.function
+            )));
+        }
+
+        // Create ScryptKdfParamsBuilder from deserialized data
+        let builder = ScryptKdfParamsBuilder {
+            n: serde_struct.params.n,
+            r: serde_struct.params.r,
+            p: serde_struct.params.p,
+            salt: serde_struct.params.salt,
+        };
+
+        // Convert to ScryptKdf using existing validation
+        ScryptKdf::try_from(builder).map_err(|e| serde::de::Error::custom(e.to_string()))
     }
 }
 
@@ -445,12 +520,114 @@ mod tests {
 
         // Test the actual KDF functionality
         if let Ok(kdf) = result {
-            use crate::key_derivation::KeyDerivationMethod;
+            use crate::key_derivation::KeyDerivationFunction;
             let derived_key = kdf.derive_key(b"testpassword");
             assert!(
                 derived_key.is_ok(),
                 "Key derivation should succeed with valid parameters"
             );
         }
+    }
+
+    #[test]
+    fn test_scrypt_kdf_serialization() {
+        use hex;
+        use serde_json;
+
+        // Create a ScryptKdf with test vector parameters
+        let salt = hex::decode("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+            .unwrap();
+        let params = ScryptKdfParamsBuilder {
+            n: 262144, // 2^18
+            r: 8,
+            p: 1,
+            salt,
+        };
+
+        let kdf = ScryptKdf::try_from(params).unwrap();
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&kdf).unwrap();
+
+        // Parse back to verify structure
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        // Verify the JSON structure matches ERC-2335 format
+        assert_eq!(parsed["function"], "scrypt");
+        assert_eq!(parsed["params"]["dklen"], 32);
+        assert_eq!(parsed["params"]["n"], 262144);
+        assert_eq!(parsed["params"]["p"], 1);
+        assert_eq!(parsed["params"]["r"], 8);
+        assert_eq!(
+            parsed["params"]["salt"],
+            "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+        );
+        assert_eq!(parsed["message"], "");
+
+        // Test deserialization roundtrip
+        let deserialized_kdf: ScryptKdf = serde_json::from_str(&json).unwrap();
+
+        // Verify the deserialized KDF has the same parameters
+        assert_eq!(deserialized_kdf.params.dklen, 32);
+        assert_eq!(2_u32.pow(deserialized_kdf.params.log2_n as u32), 262144);
+        assert_eq!(deserialized_kdf.params.r, 8);
+        assert_eq!(deserialized_kdf.params.p, 1);
+        assert_eq!(
+            deserialized_kdf.params.salt,
+            hex::decode("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_scrypt_kdf_deserialization_from_erc2335_format() {
+        use serde_json;
+
+        // Test JSON in exact ERC-2335 format
+        let json = r#"{
+            "function": "scrypt",
+            "params": {
+                "dklen": 32,
+                "n": 262144,
+                "p": 1,
+                "r": 8,
+                "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+            },
+            "message": ""
+        }"#;
+
+        let kdf: ScryptKdf = serde_json::from_str(json).unwrap();
+
+        // Verify parameters
+        assert_eq!(kdf.params.dklen, 32);
+        assert_eq!(2_u32.pow(kdf.params.log2_n as u32), 262144);
+        assert_eq!(kdf.params.r, 8);
+        assert_eq!(kdf.params.p, 1);
+        assert_eq!(
+            kdf.params.salt,
+            hex::decode("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_scrypt_kdf_deserialization_invalid_function() {
+        use serde_json;
+
+        // Test with wrong function name
+        let json = r#"{
+            "function": "pbkdf2",
+            "params": {
+                "dklen": 32,
+                "n": 262144,
+                "p": 1,
+                "r": 8,
+                "salt": "d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3"
+            },
+            "message": ""
+        }"#;
+
+        let result: Result<ScryptKdf, _> = serde_json::from_str(json);
+        assert!(result.is_err());
     }
 }

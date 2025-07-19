@@ -9,14 +9,13 @@ mod tests {
     use uuid::Uuid;
 
     use bls_keystore::{
+        aes_128_cipher::{Aes128CtrCipher, Aes128CtrCipherParams},
         derivation_path::DerivationPath,
-        key_derivation::KeyDerivationMethod,
-        keystore::{
-            Aes128CtrCipher, Aes128CtrCipherParams, DecryptError, KeyStore, KeyStoreCrypto,
-            Sha2Checksum, Sha2ChecksumParams,
-        },
+        key_derivation::KeyDerivationFunction,
+        keystore::{DecryptError, KeyStore, KeyStoreCrypto},
         pbkdf::{Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction},
         scrypt::{ScryptKdf, ScryptKdfParamsBuilder},
+        sha256_checksum::{Sha2Checksum, Sha2ChecksumParams},
     };
 
     // Test password from the vectors (Unicode password encoded as UTF-8)
@@ -42,7 +41,7 @@ mod tests {
         description: Option<String>,
     ) -> KeyStore<KDF>
     where
-        KDF: KeyDerivationMethod,
+        KDF: KeyDerivationFunction,
     {
         let crypto = KeyStoreCrypto {
             kdf,

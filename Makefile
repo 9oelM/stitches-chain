@@ -1,4 +1,4 @@
-.PHONY: format fix-format lint fix-lint check test all
+.PHONY: format fix-format lint fix-lint check test cli all
 
 format:
 	cargo fmt --all -- --check

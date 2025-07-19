@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
@@ -35,11 +36,13 @@ pub struct DerivationPath {
     purpose: u32,
     /// Coin type (3600 for ETH2)
     coin_type: u32,
-    /// Account index for different sets of keys
+    /// Identifies the validator or account. Each validator gets a unique account index (i).
     account: u32,
-    /// Use case index (0 for withdrawal keys)
+    /// Specifies the key’s use-case. For BLS keystores: 0 means withdrawal key.
+    /// Nothing else according to the spec yet.
     use_index: u32,
-    /// Optional extra index for signing keys
+    /// Optional extra index for a signing key.
+    /// Usually 0 for the first signing key.
     signing_index: Option<u32>,
 }
 
@@ -85,18 +88,41 @@ impl DerivationPath {
     }
 }
 
+impl fmt::Display for DerivationPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(signing) = self.signing_index {
+            write!(
+                f,
+                "m/{}/{}/{}/{}/{}",
+                self.purpose, self.coin_type, self.account, self.use_index, signing
+            )
+        } else {
+            write!(
+                f,
+                "m/{}/{}/{}/{}",
+                self.purpose, self.coin_type, self.account, self.use_index
+            )
+        }
+    }
+}
+
 impl FromStr for DerivationPath {
     type Err = PathError;
 
     fn from_str(path: &str) -> Result<Self, Self::Err> {
+        // Remove 'm/' prefix
         let path = path.strip_prefix("m/").ok_or(PathError::InvalidFormat)?;
+
+        // Split into components
         let components: Vec<&str> = path.split('/').collect();
 
+        // Validate components length
         match components.len() {
-            4 | 5 => (),
+            4 | 5 => (), // Valid lengths for withdrawal and signing paths
             _ => return Err(PathError::InvalidFormat),
         }
 
+        // Parse components
         let purpose = components[0]
             .parse()
             .map_err(|_| PathError::InvalidFormat)?;
@@ -107,10 +133,13 @@ impl FromStr for DerivationPath {
         let coin_type = components[1]
             .parse()
             .map_err(|_| PathError::InvalidFormat)?;
+
         let account = components[2]
             .parse()
             .map_err(|_| PathError::InvalidAccount)?;
+
         let use_index = components[3].parse().map_err(|_| PathError::InvalidUse)?;
+
         let signing_index = if components.len() == 5 {
             Some(
                 components[4]
@@ -131,21 +160,22 @@ impl FromStr for DerivationPath {
     }
 }
 
-impl fmt::Display for DerivationPath {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(signing) = self.signing_index {
-            write!(
-                f,
-                "m/{}/{}/{}/{}/{}",
-                self.purpose, self.coin_type, self.account, self.use_index, signing
-            )
-        } else {
-            write!(
-                f,
-                "m/{}/{}/{}/{}",
-                self.purpose, self.coin_type, self.account, self.use_index
-            )
-        }
+impl Serialize for DerivationPath {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for DerivationPath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let path_str = String::deserialize(deserializer)?;
+        DerivationPath::from_str(&path_str).map_err(serde::de::Error::custom)
     }
 }
 

@@ -18,7 +18,7 @@ pub struct Block {
     ///
     /// For example, if we have two blocks:
     ///
-    /// ```
+    /// ```text
     /// Block 1
     ///   |
     ///   v
