@@ -9,8 +9,7 @@ pub enum Commands {
 }
 
 #[derive(Parser)]
-#[command(name = "Stitches Validator Client")]
-#[command(about = "CLI tool for validator client operations", long_about = None)]
+#[command(name = "Stitches Client")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -23,6 +22,6 @@ fn main() {
         Commands::Validator(validator_cli) => {
             validator::cli::handle_validator_command(validator_cli);
         }
-        Commands::BeaconNode(beacon_node_cli) => {}
+        Commands::BeaconNode(_beacon_node_cli) => {}
     }
 }
