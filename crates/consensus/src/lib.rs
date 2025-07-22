@@ -8,6 +8,7 @@ pub mod block_body;
 pub mod checkpoint;
 pub mod beacon_state;
 pub mod block_header;
+pub mod hash_32;
 // use primitive_types::U256;
 // use crate::randao::Randao;
 // use crate::validator::ValidatorId;
