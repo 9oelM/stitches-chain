@@ -8,7 +8,7 @@ use crate::{
     aes_128_cipher::Aes128CtrCipher,
     derivation_path::DerivationPath,
     key_derivation::{KeyDerivationError, KeyDerivationFunction},
-    pbkdf::Pbkdf2Kdf,
+    pbkdf::Pbkdf2,
     scrypt::ScryptKdf,
     serde_helper::{option_string_as_empty, option_string_from_empty},
     sha256_checksum::{Sha2Checksum, Sha2ChecksumParams},
@@ -23,7 +23,7 @@ pub enum KdfLiteral {
 /// Key derivation functions enum that contains
 /// the specific KDF implementations.
 pub enum Kdf {
-    Pbkdf2(Pbkdf2Kdf),
+    Pbkdf2(Pbkdf2),
     Scrypt(ScryptKdf),
 }
 
@@ -223,7 +223,7 @@ impl From<KdfLiteral> for &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pbkdf::{Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction};
+    use crate::pbkdf::{Pbkdf2, Pbkdf2ParamsBuilder, PseudoRandomFunction};
     use hex;
     use serde_json;
     use std::str::FromStr;
@@ -243,12 +243,12 @@ mod tests {
         let iv = hex::decode("264daa3f303d7259501c93d997d84fe6").unwrap();
         let path = DerivationPath::from_str("m/12381/60/0/0").unwrap();
 
-        let pbkdf2_params = Pbkdf2KdfParamsBuilder {
+        let pbkdf2_params = Pbkdf2ParamsBuilder {
             c: 262144,
             salt,
             prf: PseudoRandomFunction::Sha256,
         };
-        let kdf = Pbkdf2Kdf::try_from(pbkdf2_params).unwrap();
+        let kdf = Pbkdf2::try_from(pbkdf2_params).unwrap();
 
         let keystore = KeyStore::encrypt(
             &secret_key,
@@ -293,7 +293,7 @@ mod tests {
         );
 
         // Test deserialization roundtrip
-        let deserialized_keystore: KeyStore<Pbkdf2Kdf> = serde_json::from_str(&json).unwrap();
+        let deserialized_keystore: KeyStore<Pbkdf2> = serde_json::from_str(&json).unwrap();
 
         // Verify the deserialized keystore can decrypt correctly
         let decrypted_key = deserialized_keystore.decrypt(password).unwrap();
@@ -335,7 +335,7 @@ mod tests {
             "version": 4
         }"#;
 
-        let keystore: KeyStore<Pbkdf2Kdf> = serde_json::from_str(pbkdf2_json).unwrap();
+        let keystore: KeyStore<Pbkdf2> = serde_json::from_str(pbkdf2_json).unwrap();
 
         // Verify the keystore was deserialized correctly
         assert_eq!(keystore.version, 4);

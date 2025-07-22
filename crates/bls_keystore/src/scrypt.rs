@@ -1,3 +1,8 @@
+//! Scrypt is another password-based key derivation function like PBKDF2.
+//!
+//! The primary difference from PBKDF2 is that it's memory-hard to resist
+//! specialized hardware attacks.
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

@@ -13,7 +13,7 @@ pub enum KeyDerivationError {
     InvalidDklen { dklen: u8 },
 }
 
-/// Trait for key derivation functions such as PBKDF2 and Scrypt.
+/// Trait that describes the uniform beahavior of key derivation functions such as PBKDF2 and Scrypt.
 pub trait KeyDerivationFunction {
     /// Derive a 32-byte key from a password and salt (16 bytes for AES + 16 bytes for checksum)
     fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError>;
