@@ -1,10 +1,4 @@
-use aes::{
-    Aes128,
-    cipher::{KeyIvInit, StreamCipher, generic_array::GenericArray},
-};
 use blst::min_pk::SecretKey;
-use ctr::Ctr128BE;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use thiserror::Error;
@@ -129,27 +123,27 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
         kdf: KDF,
     ) -> Result<Self, EncryptError> {
         let uuid = Uuid::new_v4();
-        let aes_iv: [u8; 16] = match aes_iv {
-            Some(iv) => iv
+        let aes_iv: Option<[u8; 16]> = match aes_iv {
+            Some(iv) => Some(iv
                 .try_into()
-                .map_err(|_| EncryptError::InvalidAesIvLength)?,
-            None => rand::rng().random::<[u8; 16]>(),
+                .map_err(|_| EncryptError::InvalidAesIvLength)?),
+            None => None,
         };
+        
         let decryption_key = kdf
             .derive_key(password)
             .map_err(EncryptError::KeyDerivationError)?;
-        let key = GenericArray::from_slice(&decryption_key[..16]);
-        let nonce = GenericArray::from_slice(&aes_iv);
 
-        let mut cipher = Ctr128BE::<Aes128>::new(key, nonce);
-        let mut cipher_message = secret_key.to_vec();
-        cipher.apply_keystream(&mut cipher_message);
+        // Encrypt the secret key using AES-128-CTR
+        let cipher = Aes128CtrCipher::encrypt(secret_key, &decryption_key, aes_iv);
 
+        // Create checksum using the second half of the derived key and encrypted message
         let mut hasher = sha2::Sha256::new();
         hasher.update(&decryption_key[16..32]);
-        hasher.update(&cipher_message);
-
+        hasher.update(&cipher.message);
         let checksum_message = hasher.finalize().to_vec();
+
+        // Generate public key from secret key
         let sk = SecretKey::from_bytes(secret_key).map_err(|blst_error| {
             EncryptError::SecretKeyConversionBlstError {
                 e: blst_error as u32,
@@ -163,10 +157,7 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
                 message: checksum_message,
                 params: Sha2ChecksumParams {},
             },
-            cipher: Aes128CtrCipher {
-                params: Aes128CtrCipherParams { iv: aes_iv },
-                message: cipher_message,
-            },
+            cipher,
         };
 
         Ok(KeyStore {
@@ -205,13 +196,8 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
             return Err(DecryptError::ChecksumMismatch);
         }
 
-        // Decrypt the secret key using AES-128-CTR
-        let key = GenericArray::from_slice(&decryption_key[..16]);
-        let nonce = GenericArray::from_slice(&self.crypto.cipher.params.iv);
-
-        let mut cipher = Ctr128BE::<Aes128>::new(key, nonce);
-        let mut decrypted_key = self.crypto.cipher.message.clone();
-        cipher.apply_keystream(&mut decrypted_key);
+        // Decrypt the secret key using the AES cipher
+        let decrypted_key = self.crypto.cipher.decrypt(&decryption_key);
 
         // Validate the decrypted key length (BLS private keys should be 32 bytes)
         let decrypted_key: [u8; 32] = decrypted_key

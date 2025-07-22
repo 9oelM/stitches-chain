@@ -46,6 +46,7 @@ impl Block {
             parent_hash,
             proposer,
             votes: Vec::new(),
+            slot: Slot::new(0)
         }
     }
 
