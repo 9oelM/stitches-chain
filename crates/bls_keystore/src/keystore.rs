@@ -1,3 +1,26 @@
+/// Core KeyStore implementation.
+/// 
+/// Spec:
+/// - [ERC-2335: BLS12-381 Keystore](https://eips.ethereum.org/EIPS/eip-2335)
+///
+/// This spec isn't in the 'final' state yet, but it's already become the de facto
+/// standard for BLS keystores, as we can see in the
+/// [Ethereum Foundation's official staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/tree/master/staking_deposit/key_handling).
+///
+/// `KeyStore` struct describes a keystore containing an encrypted BLS private key.
+/// The actual algorithm has nothing to do with BLS.
+///
+/// Currently, `KDF` can be either `Pbkdf2` or `Scrypt`.
+/// If the spec changes to support more KDFs,
+/// they just need to implement `KeyDerivationFunction` trait.
+///
+/// References:
+/// - https://github.com/ChainSafe/bls-keystore
+/// - https://github.com/ethereum/staking-deposit-cli/tree/master/staking_deposit/key_handling
+/// - https://github.com/Layr-Labs/bn254-bls-keystore-rs
+/// - https://github.com/roynalnaruto/eth-keystore-rs/blob/85ea8cd5b4dbfcdb3af50e1835540fee83d3b966/src/keystore.rs (Old keystore format)
+/// - https://github.com/RustCrypto/password-hashes (Password hashing algorithms, like PBKDF2, Scrypt)
+
 use blst::min_pk::SecretKey;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
@@ -49,27 +72,7 @@ pub enum DecryptError {
     InvalidChecksumLength { actual: usize },
 }
 
-/// Spec:
-/// - [ERC-2335: BLS12-381 Keystore](https://eips.ethereum.org/EIPS/eip-2335)
-///
-/// This spec isn't in the 'final' state yet, but it's already become the de facto
-/// standard for BLS keystores, as we can see in the
-/// [Ethereum Foundation's official staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/tree/master/staking_deposit/key_handling).
-///
-/// This struct describes a keystore containing an encrypted BLS private key.
-/// The actual algorithm has nothing to do with BLS.
-///
-/// Currently, `KDF` can be either `Pbkdf2` or `Scrypt`.
-/// If the spec changes to support more KDFs,
-/// they just need to implement `KeyDerivationFunction` trait.
-///
-/// References:
-/// - https://github.com/ChainSafe/bls-keystore
-/// - https://github.com/ethereum/staking-deposit-cli/tree/master/staking_deposit/key_handling
-/// - https://github.com/Layr-Labs/bn254-bls-keystore-rs
-/// - https://github.com/roynalnaruto/eth-keystore-rs/blob/85ea8cd5b4dbfcdb3af50e1835540fee83d3b966/src/keystore.rs (Old keystore format)
-/// - https://github.com/RustCrypto/password-hashes (Password hashing algorithms, like PBKDF2, Scrypt)
-///
+/// Core KeyStore implementation.
 #[derive(Serialize, Deserialize)]
 pub struct KeyStore<KDF: KeyDerivationFunction> {
     /// Version of the keystore format. Currently, [the spec](https://eips.ethereum.org/EIPS/eip-2335) defines only one version, which is 4.
