@@ -26,10 +26,10 @@ pub enum PathError {
 
 /// Represents a BLS12-381 key derivation path as defined in [EIP-2334](https://eips.ethereum.org/EIPS/eip-2334)
 ///
-/// Format: m/purpose/coin_type/account/use
+/// Format: `m/purpose/coin_type/account/use`
 ///
-/// Example withdrawal key path: m/12381/3600/0/0
-/// Example signing key path: m/12381/3600/0/0/0
+/// - Example withdrawal key path: `m/12381/3600/0/0`
+/// - Example signing key path: `m/12381/3600/0/0/0`
 #[derive(Debug, Clone, PartialEq)]
 pub struct DerivationPath {
     /// Must be 12381 for BLS12-381
