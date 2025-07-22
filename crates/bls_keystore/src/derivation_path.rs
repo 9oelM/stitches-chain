@@ -1,3 +1,16 @@
+//! This represents a BLS12-381 key derivation path as defined in [EIP-2334](https://eips.ethereum.org/EIPS/eip-2334)
+//!
+//! The derivation path tells where the private key came from in a hierarchical key tree.
+//! If you have a master seed (e.g., mnemonic phrase), the exact same key can be created using the path.
+//!
+//! Format: `m/purpose/coin_type/account/use`
+//!
+//! Ethereum Beacon chain validator requires multiple at least two keys:
+//! - Withdrawal key: controls funds
+//!     - Example withdrawal key path: `m/12381/3600/0/0`
+//! - Signing key: signs blocks and attestations
+//!     - Example signing key path: `m/12381/3600/0/0/0`
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
@@ -24,12 +37,7 @@ pub enum PathError {
     InvalidUse,
 }
 
-/// Represents a BLS12-381 key derivation path as defined in [EIP-2334](https://eips.ethereum.org/EIPS/eip-2334)
-///
-/// Format: `m/purpose/coin_type/account/use`
-///
-/// - Example withdrawal key path: `m/12381/3600/0/0`
-/// - Example signing key path: `m/12381/3600/0/0/0`
+/// A BLS12-381 key derivation path as defined in [EIP-2334](https://eips.ethereum.org/EIPS/eip-2334)
 #[derive(Debug, Clone, PartialEq)]
 pub struct DerivationPath {
     /// Must be 12381 for BLS12-381
