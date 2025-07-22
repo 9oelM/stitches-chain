@@ -1,5 +1,5 @@
 /// Core KeyStore implementation.
-/// 
+///
 /// Spec:
 /// - [ERC-2335: BLS12-381 Keystore](https://eips.ethereum.org/EIPS/eip-2335)
 ///
@@ -20,10 +20,8 @@
 /// - https://github.com/Layr-Labs/bn254-bls-keystore-rs
 /// - https://github.com/roynalnaruto/eth-keystore-rs/blob/85ea8cd5b4dbfcdb3af50e1835540fee83d3b966/src/keystore.rs (Old keystore format)
 /// - https://github.com/RustCrypto/password-hashes (Password hashing algorithms, like PBKDF2, Scrypt)
-
 use blst::min_pk::SecretKey;
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -34,7 +32,7 @@ use crate::{
     pbkdf::Pbkdf2,
     scrypt::ScryptKdf,
     serde_helper::{option_string_as_empty, option_string_from_empty},
-    sha256_checksum::{Sha2Checksum, Sha2ChecksumParams},
+    sha256_checksum::Sha2Checksum,
 };
 
 /// String identifier that tells which KDF is used.
@@ -142,10 +140,7 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
         let cipher = Aes128CtrCipher::encrypt(secret_key, &decryption_key, aes_iv);
 
         // Create checksum using the second half of the derived key and encrypted message
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&decryption_key[16..32]);
-        hasher.update(&cipher.message);
-        let checksum_message = hasher.finalize().to_vec();
+        let checksum = Sha2Checksum::create(&decryption_key[16..32], &cipher.message);
 
         // Generate public key from secret key
         let sk = SecretKey::from_bytes(secret_key).map_err(|blst_error| {
@@ -157,10 +152,7 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
 
         let keystore_crypto = KeyStoreCrypto {
             kdf,
-            checksum: Sha2Checksum {
-                message: checksum_message,
-                params: Sha2ChecksumParams {},
-            },
+            checksum,
             cipher,
         };
 
@@ -184,19 +176,11 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
             .map_err(DecryptError::KeyDerivationError)?;
 
         // Verify checksum before decryption
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&decryption_key[16..32]);
-        hasher.update(&self.crypto.cipher.message);
-        let computed_checksum: [u8; 32] = hasher.finalize().into();
-        let supplied_checksum: [u8; 32] = self
+        if !self
             .crypto
             .checksum
-            .message
-            .clone()
-            .try_into()
-            .map_err(|v: Vec<u8>| DecryptError::InvalidChecksumLength { actual: v.len() })?;
-
-        if computed_checksum != supplied_checksum {
+            .verify(&decryption_key[16..32], &self.crypto.cipher.message)
+        {
             return Err(DecryptError::ChecksumMismatch);
         }
 
