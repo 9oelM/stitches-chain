@@ -12,7 +12,7 @@ pub struct Cli {
 pub enum Commands {
     /// Generate a new BLS private/public key pair and store in a keystore file locked based on a password based on PBKDF2 algorithm
     Pbkdf2Keygen(Pbkdf2KeygenArgs),
-    /// Generate a new BLS private/public key pair and store in a keystore file locked with a password based on Scrypt algorithm
+    /// Generate a new BLS private/public key pair and store in a keystore file locked with a password based on Scrypt algorithm. Preferred over PBKDF2 for better security.
     ScryptKeygen(ScryptKeygenArgs),
 }
 

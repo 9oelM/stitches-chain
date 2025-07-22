@@ -3,7 +3,7 @@
 //! is turning a human-readable password into a strong cryptographic key
 //! that can encrypt/decrypt the BLS private key.
 //!
-//! Its parameter `c` is for adjusting the computational cost. The higher
+//! Its parameter `c` is for adjusting the number of iterations, i.e. the computational cost. The higher
 //! `c` is, the more time an attacker needs to spend on each time he guesses
 //! a password. Its minimum iteration is 2^18 for SHA-256 for security.
 //!

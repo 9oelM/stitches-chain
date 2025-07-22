@@ -2,6 +2,18 @@
 //!
 //! The primary difference from PBKDF2 is that it's memory-hard to resist
 //! specialized hardware attacks.
+//!
+//! PBKDF2's weakness is that it only requires lots of iterations, which
+//! is more vulnerable to specialized hardware like GPUs that allow a
+//! hacker to crack passwords much faster, because memory usage stays constant,
+//! which can be easily parallelized.
+//!
+//! Scrypt on the other hand requires both CPU time and lots of memory.
+//! This makes hardware attacks much more expensive, and therefore encryption
+//! more secure.
+//!
+//! Three key parameters of Scrypt are n, r, and p.
+//! These parameters are described under `ScryptKdfParams` struct.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
