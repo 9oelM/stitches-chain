@@ -1,8 +1,8 @@
 //! AES-128 is used to lock and unlock your private key with a password.
-//! 
-//! Think of this like a digital safe - when you store your private key, 
-//! it gets scrambled (encrypted) so no one can read it. When you need 
-//! to use your key, you provide your password to unscramble (decrypt) it back. 
+//!
+//! Think of this like a digital safe - when you store your private key,
+//! it gets scrambled (encrypted) so no one can read it. When you need
+//! to use your key, you provide your password to unscramble (decrypt) it back.
 
 use aes::{
     Aes128,
@@ -29,7 +29,7 @@ pub struct Aes128CtrCipherParams {
 pub struct Aes128CtrCipher {
     pub params: Aes128CtrCipherParams,
     /// The message is the encrypted BLS private key.
-    /// 
+    ///
     /// The encryption process scrambles it: `private key + password + IV = message`, which is stored in the keystore.
     /// To get the private key back, you reverse the process: `password + IV + message = private key`
     pub message: Vec<u8>,
@@ -103,7 +103,7 @@ impl Aes128CtrCipher {
     /// Encrypt data using AES-128-CTR with the provided key and optional IV
     pub fn encrypt(data: &[u8], encryption_key: &[u8], iv: Option<[u8; 16]>) -> Self {
         let aes_iv = iv.unwrap_or_else(|| rand::rng().random::<[u8; 16]>());
-        
+
         let encryption_key_array = GenericArray::from_slice(&encryption_key[..16]);
         let nonce = GenericArray::from_slice(&aes_iv);
 

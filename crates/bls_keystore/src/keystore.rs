@@ -5,7 +5,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
-    aes_128_cipher::{Aes128CtrCipher, Aes128CtrCipherParams},
+    aes_128_cipher::Aes128CtrCipher,
     derivation_path::DerivationPath,
     key_derivation::{KeyDerivationError, KeyDerivationFunction},
     pbkdf::Pbkdf2Kdf,
@@ -124,12 +124,13 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
     ) -> Result<Self, EncryptError> {
         let uuid = Uuid::new_v4();
         let aes_iv: Option<[u8; 16]> = match aes_iv {
-            Some(iv) => Some(iv
-                .try_into()
-                .map_err(|_| EncryptError::InvalidAesIvLength)?),
+            Some(iv) => Some(
+                iv.try_into()
+                    .map_err(|_| EncryptError::InvalidAesIvLength)?,
+            ),
             None => None,
         };
-        
+
         let decryption_key = kdf
             .derive_key(password)
             .map_err(EncryptError::KeyDerivationError)?;

@@ -1,3 +1,3 @@
 pub struct Epoch {
-  pub value: u64,
+    pub value: u64,
 }
