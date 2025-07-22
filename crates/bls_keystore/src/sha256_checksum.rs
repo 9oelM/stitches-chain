@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 
 #[derive(Debug, Clone)]
 pub struct Sha256Literal {}
@@ -47,6 +48,31 @@ impl<'de> Deserialize<'de> for Sha256Literal {
             )));
         }
         Ok(Sha256Literal {})
+    }
+}
+
+impl Sha2Checksum {
+    /// Create a new SHA256 checksum from the second half of the derived key and encrypted message
+    pub fn create(key_second_half: &[u8], encrypted_message: &[u8]) -> Self {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(key_second_half);
+        hasher.update(encrypted_message);
+        let checksum_message = hasher.finalize().to_vec();
+
+        Self {
+            params: Sha2ChecksumParams {},
+            message: checksum_message,
+        }
+    }
+
+    /// Verify the checksum against the provided key and encrypted message
+    pub fn verify(&self, key_second_half: &[u8], encrypted_message: &[u8]) -> bool {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(key_second_half);
+        hasher.update(encrypted_message);
+        let computed_checksum = hasher.finalize().to_vec();
+
+        computed_checksum == self.message
     }
 }
 

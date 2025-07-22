@@ -1,7 +1,7 @@
 use primitive_types::U256;
 use sha2::{Digest, Sha256};
 
-use crate::validator::ValidatorId;
+use crate::{slot::Slot, validator::ValidatorId};
 
 /// Represents a block in the blockchain.
 ///
@@ -34,10 +34,7 @@ pub struct Block {
     proposer: ValidatorId,
     /// List of validator IDs who voted for this block.
     votes: Vec<ValidatorId>,
-    /// The RANDAO reveal value for this block.
-    /// This is a verifiable random value provided by the block proposer.
-    /// See [randao](crate::randao::Randao) for more.
-    randao_reveal: U256,
+    slot: Slot,
 }
 
 impl Block {
@@ -49,17 +46,12 @@ impl Block {
             parent_hash,
             proposer,
             votes: Vec::new(),
-            randao_reveal: U256::zero(),
+            slot: Slot::new(0),
         }
     }
 
     pub fn add_vote(&mut self, validator_id: ValidatorId) {
         self.votes.push(validator_id);
-    }
-
-    /// Set the RANDAO reveal value for this block
-    pub fn set_randao_reveal(&mut self, reveal: U256) {
-        self.randao_reveal = reveal;
     }
 
     /// Generate a hash of the block using SHA-256.
@@ -81,7 +73,6 @@ impl From<&Block> for Vec<u8> {
         let serialized_height = block.height.to_be_bytes();
         let serialized_parent_hash = block.parent_hash.to_big_endian();
         let serialized_proposer = block.proposer.to_be_bytes();
-        let serialized_randao = block.randao_reveal.to_big_endian();
         let serialized_votes = block
             .votes
             .iter()
@@ -93,7 +84,6 @@ impl From<&Block> for Vec<u8> {
         serialized.extend_from_slice(&serialized_height);
         serialized.extend_from_slice(&serialized_parent_hash);
         serialized.extend_from_slice(&serialized_proposer);
-        serialized.extend_from_slice(&serialized_randao);
         serialized.extend_from_slice(&serialized_votes);
 
         serialized

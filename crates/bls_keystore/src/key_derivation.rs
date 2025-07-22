@@ -1,3 +1,7 @@
+//! Key deriviation functions used for the keystore are Scrypt and PBKDF2,
+//! which share similar qualities. `KeyDerivationFunction` trait formalizes
+//! the common behavior.
+
 use thiserror::Error;
 
 use crate::{keystore::KdfLiteral, scrypt::ScryptKdfToDerivedKeyError};
@@ -13,7 +17,8 @@ pub enum KeyDerivationError {
     InvalidDklen { dklen: u8 },
 }
 
-/// Trait for key derivation functions such as PBKDF2 and Scrypt.
+/// Trait that describes the common beahavior of key derivation functions
+/// such as PBKDF2 and Scrypt.
 pub trait KeyDerivationFunction {
     /// Derive a 32-byte key from a password and salt (16 bytes for AES + 16 bytes for checksum)
     fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError>;

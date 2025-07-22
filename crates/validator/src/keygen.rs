@@ -2,7 +2,7 @@ use std::{path::PathBuf, str::FromStr};
 
 use bls_keystore::{
     derivation_path::DerivationPath,
-    pbkdf::{self, Pbkdf2Kdf},
+    pbkdf::{self, Pbkdf2},
     scrypt::{self, ScryptKdf},
 };
 use blst::min_pk::{PublicKey, SecretKey};
@@ -104,7 +104,7 @@ impl Keygen for Pbkdf2KeygenArgs {
 
         let account = BlsAccount::new(self.account_index);
 
-        let pbkdf2kdf: Pbkdf2Kdf = pbkdf::Pbkdf2KdfParamsBuilder::new(
+        let Pbkdf2: Pbkdf2 = pbkdf::Pbkdf2ParamsBuilder::new(
             self.param_c,
             rand::rng().random::<[u8; 32]>().to_vec(),
             self.param_prf.clone().into(),
@@ -118,7 +118,7 @@ impl Keygen for Pbkdf2KeygenArgs {
             account.path.clone(),
             None,
             None,
-            pbkdf2kdf,
+            Pbkdf2,
         )
         .expect("Failed to create keystore");
 

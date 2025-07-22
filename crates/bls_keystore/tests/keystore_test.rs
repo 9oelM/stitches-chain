@@ -13,7 +13,7 @@ mod tests {
         derivation_path::DerivationPath,
         key_derivation::KeyDerivationFunction,
         keystore::{DecryptError, KeyStore, KeyStoreCrypto},
-        pbkdf::{Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction},
+        pbkdf::{Pbkdf2, Pbkdf2ParamsBuilder, PseudoRandomFunction},
         scrypt::{ScryptKdf, ScryptKdfParamsBuilder},
         sha256_checksum::{Sha2Checksum, Sha2ChecksumParams},
     };
@@ -90,12 +90,12 @@ mod tests {
         let path = DerivationPath::from_str(pbkdf2_data["path"].as_str().unwrap()).unwrap();
 
         // Create PBKDF2 KDF with test vector parameters
-        let pbkdf2_params = Pbkdf2KdfParamsBuilder {
+        let pbkdf2_params = Pbkdf2ParamsBuilder {
             c,
             salt,
             prf: PseudoRandomFunction::Sha256,
         };
-        let kdf = Pbkdf2Kdf::try_from(pbkdf2_params).unwrap();
+        let kdf = Pbkdf2::try_from(pbkdf2_params).unwrap();
 
         // Encrypt with exact IV from test vector
         let keystore = KeyStore::encrypt(
@@ -227,13 +227,13 @@ mod tests {
         let different_password = b"mypassword123";
 
         // Create PBKDF2 KDF with different parameters
-        let pbkdf2_params = Pbkdf2KdfParamsBuilder {
+        let pbkdf2_params = Pbkdf2ParamsBuilder {
             c: 2_u32.pow(18) + 12345, // Different iteration count
             salt: hex::decode("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
                 .unwrap(),
             prf: PseudoRandomFunction::Sha256,
         };
-        let kdf = Pbkdf2Kdf::try_from(pbkdf2_params).unwrap();
+        let kdf = Pbkdf2::try_from(pbkdf2_params).unwrap();
 
         // Encrypt with different IV
         let keystore = KeyStore::encrypt(
@@ -332,12 +332,12 @@ mod tests {
         let path = DerivationPath::from_str(pbkdf2_data["path"].as_str().unwrap()).unwrap();
         let uuid = Uuid::from_str(pbkdf2_data["uuid"].as_str().unwrap()).unwrap();
 
-        let pbkdf2_params = Pbkdf2KdfParamsBuilder {
+        let pbkdf2_params = Pbkdf2ParamsBuilder {
             c,
             salt,
             prf: PseudoRandomFunction::Sha256,
         };
-        let kdf = Pbkdf2Kdf::try_from(pbkdf2_params).unwrap();
+        let kdf = Pbkdf2::try_from(pbkdf2_params).unwrap();
 
         let keystore = create_test_keystore(
             kdf,

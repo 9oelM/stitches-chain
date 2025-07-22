@@ -1,8 +1,14 @@
+pub mod beacon_state;
 pub mod block;
+pub mod block_body;
+pub mod block_header;
+pub mod checkpoint;
 pub mod cli;
+pub mod epoch;
+pub mod hash_32;
 pub mod randao;
+pub mod slot;
 pub mod validator;
-
 // use primitive_types::U256;
 // use crate::randao::Randao;
 // use crate::validator::ValidatorId;

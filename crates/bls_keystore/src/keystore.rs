@@ -1,23 +1,38 @@
-use aes::{
-    Aes128,
-    cipher::{KeyIvInit, StreamCipher, generic_array::GenericArray},
-};
+/// Core KeyStore implementation.
+///
+/// Spec:
+/// - [ERC-2335: BLS12-381 Keystore](https://eips.ethereum.org/EIPS/eip-2335)
+///
+/// This spec isn't in the 'final' state yet, but it's already become the de facto
+/// standard for BLS keystores, as we can see in the
+/// [Ethereum Foundation's official staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/tree/master/staking_deposit/key_handling).
+///
+/// `KeyStore` struct describes a keystore containing an encrypted BLS private key.
+/// The actual algorithm has nothing to do with BLS.
+///
+/// Currently, `KDF` can be either `Pbkdf2` or `Scrypt`.
+/// If the spec changes to support more KDFs,
+/// they just need to implement `KeyDerivationFunction` trait.
+///
+/// References:
+/// - https://github.com/ChainSafe/bls-keystore
+/// - https://github.com/ethereum/staking-deposit-cli/tree/master/staking_deposit/key_handling
+/// - https://github.com/Layr-Labs/bn254-bls-keystore-rs
+/// - https://github.com/roynalnaruto/eth-keystore-rs/blob/85ea8cd5b4dbfcdb3af50e1835540fee83d3b966/src/keystore.rs (Old keystore format)
+/// - https://github.com/RustCrypto/password-hashes (Password hashing algorithms, like PBKDF2, Scrypt)
 use blst::min_pk::SecretKey;
-use ctr::Ctr128BE;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sha2::Digest;
 use thiserror::Error;
 use uuid::Uuid;
 
 use crate::{
-    aes_128_cipher::{Aes128CtrCipher, Aes128CtrCipherParams},
+    aes_128_cipher::Aes128CtrCipher,
     derivation_path::DerivationPath,
     key_derivation::{KeyDerivationError, KeyDerivationFunction},
-    pbkdf::Pbkdf2Kdf,
+    pbkdf::Pbkdf2,
     scrypt::ScryptKdf,
     serde_helper::{option_string_as_empty, option_string_from_empty},
-    sha256_checksum::{Sha2Checksum, Sha2ChecksumParams},
+    sha256_checksum::Sha2Checksum,
 };
 
 /// String identifier that tells which KDF is used.
@@ -29,7 +44,7 @@ pub enum KdfLiteral {
 /// Key derivation functions enum that contains
 /// the specific KDF implementations.
 pub enum Kdf {
-    Pbkdf2(Pbkdf2Kdf),
+    Pbkdf2(Pbkdf2),
     Scrypt(ScryptKdf),
 }
 
@@ -55,27 +70,7 @@ pub enum DecryptError {
     InvalidChecksumLength { actual: usize },
 }
 
-/// Spec:
-/// - [ERC-2335: BLS12-381 Keystore](https://eips.ethereum.org/EIPS/eip-2335)
-///
-/// This spec isn't in the 'final' state yet, but it's already become the de facto
-/// standard for BLS keystores, as we can see in the
-/// [Ethereum Foundation's official staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/tree/master/staking_deposit/key_handling).
-///
-/// This struct describes a keystore containing an encrypted BLS private key.
-/// The actual algorithm has nothing to do with BLS.
-///
-/// Currently, `KDF` can be either `Pbkdf2` or `Scrypt`.
-/// If the spec changes to support more KDFs,
-/// they just need to implement `KeyDerivationFunction` trait.
-///
-/// References:
-/// - https://github.com/ChainSafe/bls-keystore
-/// - https://github.com/ethereum/staking-deposit-cli/tree/master/staking_deposit/key_handling
-/// - https://github.com/Layr-Labs/bn254-bls-keystore-rs
-/// - https://github.com/roynalnaruto/eth-keystore-rs/blob/85ea8cd5b4dbfcdb3af50e1835540fee83d3b966/src/keystore.rs (Old keystore format)
-/// - https://github.com/RustCrypto/password-hashes (Password hashing algorithms, like PBKDF2, Scrypt)
-///
+/// Core KeyStore implementation.
 #[derive(Serialize, Deserialize)]
 pub struct KeyStore<KDF: KeyDerivationFunction> {
     /// Version of the keystore format. Currently, [the spec](https://eips.ethereum.org/EIPS/eip-2335) defines only one version, which is 4.
@@ -129,27 +124,25 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
         kdf: KDF,
     ) -> Result<Self, EncryptError> {
         let uuid = Uuid::new_v4();
-        let aes_iv: [u8; 16] = match aes_iv {
-            Some(iv) => iv
-                .try_into()
-                .map_err(|_| EncryptError::InvalidAesIvLength)?,
-            None => rand::rng().random::<[u8; 16]>(),
+        let aes_iv: Option<[u8; 16]> = match aes_iv {
+            Some(iv) => Some(
+                iv.try_into()
+                    .map_err(|_| EncryptError::InvalidAesIvLength)?,
+            ),
+            None => None,
         };
+
         let decryption_key = kdf
             .derive_key(password)
             .map_err(EncryptError::KeyDerivationError)?;
-        let key = GenericArray::from_slice(&decryption_key[..16]);
-        let nonce = GenericArray::from_slice(&aes_iv);
 
-        let mut cipher = Ctr128BE::<Aes128>::new(key, nonce);
-        let mut cipher_message = secret_key.to_vec();
-        cipher.apply_keystream(&mut cipher_message);
+        // Encrypt the secret key using AES-128-CTR
+        let cipher = Aes128CtrCipher::encrypt(secret_key, &decryption_key, aes_iv);
 
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&decryption_key[16..32]);
-        hasher.update(&cipher_message);
+        // Create checksum using the second half of the derived key and encrypted message
+        let checksum = Sha2Checksum::create(&decryption_key[16..32], &cipher.message);
 
-        let checksum_message = hasher.finalize().to_vec();
+        // Generate public key from secret key
         let sk = SecretKey::from_bytes(secret_key).map_err(|blst_error| {
             EncryptError::SecretKeyConversionBlstError {
                 e: blst_error as u32,
@@ -159,14 +152,8 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
 
         let keystore_crypto = KeyStoreCrypto {
             kdf,
-            checksum: Sha2Checksum {
-                message: checksum_message,
-                params: Sha2ChecksumParams {},
-            },
-            cipher: Aes128CtrCipher {
-                params: Aes128CtrCipherParams { iv: aes_iv },
-                message: cipher_message,
-            },
+            checksum,
+            cipher,
         };
 
         Ok(KeyStore {
@@ -189,29 +176,16 @@ impl<KDF: KeyDerivationFunction> KeyStore<KDF> {
             .map_err(DecryptError::KeyDerivationError)?;
 
         // Verify checksum before decryption
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&decryption_key[16..32]);
-        hasher.update(&self.crypto.cipher.message);
-        let computed_checksum: [u8; 32] = hasher.finalize().into();
-        let supplied_checksum: [u8; 32] = self
+        if !self
             .crypto
             .checksum
-            .message
-            .clone()
-            .try_into()
-            .map_err(|v: Vec<u8>| DecryptError::InvalidChecksumLength { actual: v.len() })?;
-
-        if computed_checksum != supplied_checksum {
+            .verify(&decryption_key[16..32], &self.crypto.cipher.message)
+        {
             return Err(DecryptError::ChecksumMismatch);
         }
 
-        // Decrypt the secret key using AES-128-CTR
-        let key = GenericArray::from_slice(&decryption_key[..16]);
-        let nonce = GenericArray::from_slice(&self.crypto.cipher.params.iv);
-
-        let mut cipher = Ctr128BE::<Aes128>::new(key, nonce);
-        let mut decrypted_key = self.crypto.cipher.message.clone();
-        cipher.apply_keystream(&mut decrypted_key);
+        // Decrypt the secret key using the AES cipher
+        let decrypted_key = self.crypto.cipher.decrypt(&decryption_key);
 
         // Validate the decrypted key length (BLS private keys should be 32 bytes)
         let decrypted_key: [u8; 32] = decrypted_key
@@ -236,7 +210,7 @@ impl From<KdfLiteral> for &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pbkdf::{Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction};
+    use crate::pbkdf::{Pbkdf2, Pbkdf2ParamsBuilder, PseudoRandomFunction};
     use hex;
     use serde_json;
     use std::str::FromStr;
@@ -256,12 +230,12 @@ mod tests {
         let iv = hex::decode("264daa3f303d7259501c93d997d84fe6").unwrap();
         let path = DerivationPath::from_str("m/12381/60/0/0").unwrap();
 
-        let pbkdf2_params = Pbkdf2KdfParamsBuilder {
+        let pbkdf2_params = Pbkdf2ParamsBuilder {
             c: 262144,
             salt,
             prf: PseudoRandomFunction::Sha256,
         };
-        let kdf = Pbkdf2Kdf::try_from(pbkdf2_params).unwrap();
+        let kdf = Pbkdf2::try_from(pbkdf2_params).unwrap();
 
         let keystore = KeyStore::encrypt(
             &secret_key,
@@ -306,7 +280,7 @@ mod tests {
         );
 
         // Test deserialization roundtrip
-        let deserialized_keystore: KeyStore<Pbkdf2Kdf> = serde_json::from_str(&json).unwrap();
+        let deserialized_keystore: KeyStore<Pbkdf2> = serde_json::from_str(&json).unwrap();
 
         // Verify the deserialized keystore can decrypt correctly
         let decrypted_key = deserialized_keystore.decrypt(password).unwrap();
@@ -348,7 +322,7 @@ mod tests {
             "version": 4
         }"#;
 
-        let keystore: KeyStore<Pbkdf2Kdf> = serde_json::from_str(pbkdf2_json).unwrap();
+        let keystore: KeyStore<Pbkdf2> = serde_json::from_str(pbkdf2_json).unwrap();
 
         // Verify the keystore was deserialized correctly
         assert_eq!(keystore.version, 4);

@@ -1,3 +1,23 @@
+//! PBKDF2 is Password-Based Key Derivation Function 2.
+//! Its primary purpose in BLS12-381 Keystore Implementation (ERC-2335)
+//! is turning a human-readable password into a strong cryptographic key
+//! that can encrypt/decrypt the BLS private key.
+//!
+//! Its parameter `c` is for adjusting the number of iterations, i.e. the computational cost. The higher
+//! `c` is, the more time an attacker needs to spend on each time he guesses
+//! a password. Its minimum iteration is 2^18 for SHA-256 for security.
+//!
+//! `salt` prevents something called rainbow table attacks. It ensures that
+//! identitcal passwords produce different encryption keys each time, similarly
+//! to how `iv` works for AES-128.
+//!
+//! A rainbow table attack is a way that hackers use to crack passwords very fast
+//! based on a pre-computed lookup tables. If the salt is the same for all passwords,
+//! an attacker can create a dictionary of hashed passwords with a guessed salt, and
+//! try to find a matching hash from the table against the provided hash.
+//! Imagine if 10000 keystores are created using the same salt and different passwords.
+//! Then every keystore is now more vulnerable to the rainbow attack.
+
 use pbkdf2::pbkdf2_hmac;
 use serde::{Deserialize, Serialize};
 use sha2;
@@ -14,52 +34,23 @@ pub enum PseudoRandomFunction {
     Sha512,
 }
 
-impl Serialize for PseudoRandomFunction {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let prf_str = match self {
-            PseudoRandomFunction::Sha256 => "hmac-sha256",
-            PseudoRandomFunction::Sha512 => "hmac-sha512",
-        };
-        serializer.serialize_str(prf_str)
-    }
-}
-
-impl<'de> Deserialize<'de> for PseudoRandomFunction {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let prf_str = String::deserialize(deserializer)?;
-        match prf_str.as_str() {
-            "hmac-sha256" => Ok(PseudoRandomFunction::Sha256),
-            "hmac-sha512" => Ok(PseudoRandomFunction::Sha512),
-            _ => Err(serde::de::Error::custom(format!(
-                "Unknown PRF: {prf_str}. Expected 'hmac-sha256' or 'hmac-sha512'"
-            ))),
-        }
-    }
-}
-
 #[derive(Debug, Error)]
-pub enum CreatePbkdfParamsError {
+pub enum CreatePbkdf2ParamsError {
     #[error("The PBKDF2 parameters chosen are not secure: c must be >= 2^18, but got c={c}")]
     InsecureParameters { c: u32 },
 }
 
-/// Key derivation function.
+/// PBKDF Key derivation function.
 ///
 /// Derives a key from a password
 #[derive(Debug, Clone)]
-pub struct Pbkdf2Kdf {
-    params: Pbkdf2KdfParams,
+pub struct Pbkdf2 {
+    params: Pbkdf2Params,
 }
 
 /// Serialization structure for PBKDF2 KDF parameters matching ERC-2335 format
 #[derive(Serialize, Deserialize)]
-struct Pbkdf2KdfParamsSerde {
+struct Pbkdf2ParamsSerde {
     dklen: u8,
     c: u32,
     prf: PseudoRandomFunction,
@@ -69,14 +60,14 @@ struct Pbkdf2KdfParamsSerde {
 
 /// Serialization structure for the complete PBKDF2 KDF matching ERC-2335 format
 #[derive(Serialize, Deserialize)]
-struct Pbkdf2KdfSerde {
+struct Pbkdf2Serde {
     function: String,
-    params: Pbkdf2KdfParamsSerde,
+    params: Pbkdf2ParamsSerde,
     message: String,
 }
 
 #[derive(Debug, Clone)]
-pub struct Pbkdf2KdfParamsBuilder {
+pub struct Pbkdf2ParamsBuilder {
     pub c: u32,
     /// Spec does not specify the length of the salt, so we use a Vec<u8>
     pub salt: Vec<u8>,
@@ -85,7 +76,7 @@ pub struct Pbkdf2KdfParamsBuilder {
 }
 
 #[derive(Debug, Clone)]
-pub struct Pbkdf2KdfParams {
+pub struct Pbkdf2Params {
     /// Output of the derived key in bytes.
     ///
     /// For example, dklen = 32 means that the derived key will be 32 bytes long.
@@ -100,19 +91,19 @@ pub struct Pbkdf2KdfParams {
     pub prf: PseudoRandomFunction,
 }
 
-impl Pbkdf2Kdf {
-    fn new(params: Pbkdf2KdfParams) -> Self {
+impl Pbkdf2 {
+    fn new(params: Pbkdf2Params) -> Self {
         Self { params }
     }
 }
 
-impl Pbkdf2KdfParamsBuilder {
+impl Pbkdf2ParamsBuilder {
     pub fn new(c: u32, salt: Vec<u8>, prf: PseudoRandomFunction) -> Self {
         Self { c, salt, prf }
     }
 }
 
-impl KeyDerivationFunction for Pbkdf2Kdf {
+impl KeyDerivationFunction for Pbkdf2 {
     /// Derives a 32-byte key from the given password and salt using PBKDF2.
     fn derive_key(&self, password: &[u8]) -> Result<[u8; 32], KeyDerivationError> {
         // The spec is not finalized, and currently dklen can only be 32 bytes.
@@ -155,14 +146,43 @@ impl KeyDerivationFunction for Pbkdf2Kdf {
     }
 }
 
-impl Serialize for Pbkdf2Kdf {
+impl Serialize for PseudoRandomFunction {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let serde_struct = Pbkdf2KdfSerde {
+        let prf_str = match self {
+            PseudoRandomFunction::Sha256 => "hmac-sha256",
+            PseudoRandomFunction::Sha512 => "hmac-sha512",
+        };
+        serializer.serialize_str(prf_str)
+    }
+}
+
+impl<'de> Deserialize<'de> for PseudoRandomFunction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let prf_str = String::deserialize(deserializer)?;
+        match prf_str.as_str() {
+            "hmac-sha256" => Ok(PseudoRandomFunction::Sha256),
+            "hmac-sha512" => Ok(PseudoRandomFunction::Sha512),
+            _ => Err(serde::de::Error::custom(format!(
+                "Unknown PRF: {prf_str}. Expected 'hmac-sha256' or 'hmac-sha512'"
+            ))),
+        }
+    }
+}
+
+impl Serialize for Pbkdf2 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let serde_struct = Pbkdf2Serde {
             function: "pbkdf2".to_string(),
-            params: Pbkdf2KdfParamsSerde {
+            params: Pbkdf2ParamsSerde {
                 dklen: self.params.dklen,
                 c: self.params.c,
                 prf: self.params.prf.clone(),
@@ -174,12 +194,12 @@ impl Serialize for Pbkdf2Kdf {
     }
 }
 
-impl<'de> Deserialize<'de> for Pbkdf2Kdf {
+impl<'de> Deserialize<'de> for Pbkdf2 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        let serde_struct = Pbkdf2KdfSerde::deserialize(deserializer)?;
+        let serde_struct = Pbkdf2Serde::deserialize(deserializer)?;
 
         // Validate that function is "pbkdf2"
         if serde_struct.function != "pbkdf2" {
@@ -189,31 +209,31 @@ impl<'de> Deserialize<'de> for Pbkdf2Kdf {
             )));
         }
 
-        // Create Pbkdf2KdfParamsBuilder from deserialized data
-        let builder = Pbkdf2KdfParamsBuilder {
+        // Create Pbkdf2ParamsBuilder from deserialized data
+        let builder = Pbkdf2ParamsBuilder {
             c: serde_struct.params.c,
             salt: serde_struct.params.salt,
             prf: serde_struct.params.prf,
         };
 
-        // Convert to Pbkdf2Kdf using existing validation
-        Pbkdf2Kdf::try_from(builder).map_err(|e| serde::de::Error::custom(e.to_string()))
+        // Convert to Pbkdf2 using existing validation
+        Pbkdf2::try_from(builder).map_err(|e| serde::de::Error::custom(e.to_string()))
     }
 }
 
-impl TryFrom<Pbkdf2KdfParamsBuilder> for Pbkdf2Kdf {
-    type Error = CreatePbkdfParamsError;
+impl TryFrom<Pbkdf2ParamsBuilder> for Pbkdf2 {
+    type Error = CreatePbkdf2ParamsError;
 
     /// Refer to https://github.com/ethereum/staking-deposit-cli/blob/948d3fc358fdae54ff47dd8045206276b0b6b914/staking_deposit/utils/crypto.py#L41C27-L41C71
     /// for parameter validation
-    fn try_from(params: Pbkdf2KdfParamsBuilder) -> Result<Self, Self::Error> {
+    fn try_from(params: Pbkdf2ParamsBuilder) -> Result<Self, Self::Error> {
         if let PseudoRandomFunction::Sha256 = params.prf {
             if params.c < (2_u32.pow(18)) {
-                return Err(CreatePbkdfParamsError::InsecureParameters { c: params.c });
+                return Err(CreatePbkdf2ParamsError::InsecureParameters { c: params.c });
             }
         }
 
-        Ok(Self::new(Pbkdf2KdfParams {
+        Ok(Self::new(Pbkdf2Params {
             dklen: 32, // 16 for AES, 16 for checksum
             c: params.c,
             salt: params.salt,
@@ -225,35 +245,35 @@ impl TryFrom<Pbkdf2KdfParamsBuilder> for Pbkdf2Kdf {
 #[cfg(test)]
 mod tests {
     use crate::pbkdf::{
-        CreatePbkdfParamsError, Pbkdf2Kdf, Pbkdf2KdfParamsBuilder, PseudoRandomFunction,
+        CreatePbkdf2ParamsError, Pbkdf2, Pbkdf2ParamsBuilder, PseudoRandomFunction,
     };
 
     #[test]
     fn test_insecure_parameters_sha256_below_threshold() {
         // Test case where c < 2^18 (262144) for SHA256
-        let params = Pbkdf2KdfParamsBuilder {
+        let params = Pbkdf2ParamsBuilder {
             c: 262143, // Just below 2^18
             salt: vec![0u8; 32],
             prf: PseudoRandomFunction::Sha256,
         };
 
-        let result = Pbkdf2Kdf::try_from(params);
+        let result = Pbkdf2::try_from(params);
 
         assert!(matches!(
             result,
-            Err(CreatePbkdfParamsError::InsecureParameters { c: 262143 })
+            Err(CreatePbkdf2ParamsError::InsecureParameters { c: 262143 })
         ));
     }
     #[test]
     fn test_secure_parameters_sha256_at_threshold() {
         // Test parameters exactly at the security threshold for SHA256
-        let params = Pbkdf2KdfParamsBuilder {
+        let params = Pbkdf2ParamsBuilder {
             c: 262144, // Exactly 2^18
             salt: vec![0u8; 32],
             prf: PseudoRandomFunction::Sha256,
         };
 
-        let result = Pbkdf2Kdf::try_from(params);
+        let result = Pbkdf2::try_from(params);
 
         // This should succeed as it meets the minimum security requirement
         assert!(result.is_ok());
@@ -262,13 +282,13 @@ mod tests {
     #[test]
     fn test_secure_parameters_sha256_above_threshold() {
         // Test parameters above the security threshold for SHA256
-        let params = Pbkdf2KdfParamsBuilder {
+        let params = Pbkdf2ParamsBuilder {
             c: 262145, // Just above 2^18
             salt: vec![0u8; 32],
             prf: PseudoRandomFunction::Sha256,
         };
 
-        let result = Pbkdf2Kdf::try_from(params);
+        let result = Pbkdf2::try_from(params);
 
         assert!(result.is_ok());
     }
@@ -278,16 +298,16 @@ mod tests {
         use hex;
         use serde_json;
 
-        // Create a Pbkdf2Kdf with test vector parameters
+        // Create a Pbkdf2 with test vector parameters
         let salt = hex::decode("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
             .unwrap();
-        let params = Pbkdf2KdfParamsBuilder {
+        let params = Pbkdf2ParamsBuilder {
             c: 262144, // 2^18
             salt,
             prf: PseudoRandomFunction::Sha256,
         };
 
-        let kdf = Pbkdf2Kdf::try_from(params).unwrap();
+        let kdf = Pbkdf2::try_from(params).unwrap();
 
         // Serialize to JSON
         let json = serde_json::to_string(&kdf).unwrap();
@@ -307,7 +327,7 @@ mod tests {
         assert_eq!(parsed["message"], "");
 
         // Test deserialization roundtrip
-        let deserialized_kdf: Pbkdf2Kdf = serde_json::from_str(&json).unwrap();
+        let deserialized_kdf: Pbkdf2 = serde_json::from_str(&json).unwrap();
 
         // Verify the deserialized KDF has the same parameters
         assert_eq!(deserialized_kdf.params.dklen, 32);
@@ -339,7 +359,7 @@ mod tests {
             "message": ""
         }"#;
 
-        let kdf: Pbkdf2Kdf = serde_json::from_str(json).unwrap();
+        let kdf: Pbkdf2 = serde_json::from_str(json).unwrap();
 
         // Verify parameters
         assert_eq!(kdf.params.dklen, 32);
@@ -368,7 +388,7 @@ mod tests {
             "message": ""
         }"#;
 
-        let result: Result<Pbkdf2Kdf, _> = serde_json::from_str(json);
+        let result: Result<Pbkdf2, _> = serde_json::from_str(json);
         assert!(result.is_err());
     }
 
@@ -409,16 +429,16 @@ mod tests {
         use hex;
         use serde_json;
 
-        // Create a Pbkdf2Kdf with SHA512 PRF
+        // Create a Pbkdf2 with SHA512 PRF
         let salt = hex::decode("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
             .unwrap();
-        let params = Pbkdf2KdfParamsBuilder {
+        let params = Pbkdf2ParamsBuilder {
             c: 300000, // Higher iteration count
             salt,
             prf: PseudoRandomFunction::Sha512,
         };
 
-        let kdf = Pbkdf2Kdf::try_from(params).unwrap();
+        let kdf = Pbkdf2::try_from(params).unwrap();
 
         // Serialize to JSON
         let json = serde_json::to_string(&kdf).unwrap();
@@ -438,7 +458,7 @@ mod tests {
         assert_eq!(parsed["message"], "");
 
         // Test deserialization roundtrip
-        let deserialized_kdf: Pbkdf2Kdf = serde_json::from_str(&json).unwrap();
+        let deserialized_kdf: Pbkdf2 = serde_json::from_str(&json).unwrap();
         assert!(matches!(
             deserialized_kdf.params.prf,
             PseudoRandomFunction::Sha512
